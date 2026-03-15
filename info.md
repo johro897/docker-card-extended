@@ -18,7 +18,7 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 2. Paste this repository URL, choose **Dashboard**, and click **Add**.
 3. Search for **Docker Card** under **Frontend**, open the entry, then click **Download**.
 4. Reload Lovelace resources (or restart Home Assistant) so the card is available.
-5. If HACS does not add it automatically, register `/hacsfiles/lovelace-docker-card/docker-card.js` as a Lovelace resource.
+5. If HACS does not add it automatically, register `/hacsfiles/docker-card/docker-card.js` as a Lovelace resource.
 
 ## Example configuration
 
@@ -42,21 +42,24 @@ running_color: "var(--state-active-color)"
 not_running_color: "#c22040"
 containers:
   - name: Home Assistant
-    status_entity: sensor.docker_homeassistant_status
-    control_entity: switch.docker_homeassistant
-    restart_entity: switch.docker_restart_homeassistant
+    status_entity: sensor.docker_home_assistant_state
+    control_entity: switch.home_assistant_behallare
+    restart_entity: button.home_assistant_restart_container
+    cpu_entity: sensor.home_assistant_cpu_anvandning_totalt
+    memory_entity: sensor.home_assistant_minnesanvandning_i_procent
+    image_version_entity: sensor.docker_home_assistant_image
+    health_entity: sensor.docker_home_assistant_health
+    icon: mdi:home-assistant
     tap_action:
       action: more-info
-    hold_action:
-      action: url
-      url_path: https://portainer.local/#!/2/docker/containers/homeassistant
-  - name: Node-RED
-    status_entity: sensor.docker_nodered_status
-    control_entity: switch.docker_nodered
-    restart_entity: button.docker_restart_nodered
-    tap_action:
-      action: toggle
-    hold_action:
-      action: call-service
-      service: script.trigger_container_diagnostics
+      entity: sensor.docker_home_assistant_state
+  - name: Deconz
+    status_entity: sensor.docker_deconz_state
+    control_entity: switch.deconz_behallare
+    restart_entity: button.deconz_restart_container
+    cpu_entity: sensor.deconz_cpu_anvandning_totalt
+    memory_entity: sensor.deconz_minnesanvandning_i_procent
+    image_version_entity: sensor.docker_deconz_image
+    health_entity: sensor.docker_deconz_health
+    icon: mdi:zigbee
 ```
