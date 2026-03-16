@@ -217,4 +217,4 @@ The distributed bundle is `docker-card.js` — a single self-contained ES2021 Ja
 
 ## License
 
-MIT © 2025 — inspired by [vineetchoudhary/lovelace-docker-card](https://github.com/vineetchoudhary/lovelace-docker-card)
+MIT © 2026 — inspired by [vineetchoudhary/lovelace-docker-card](https://github.com/vineetchoudhary/lovelace-docker-card)
