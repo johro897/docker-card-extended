@@ -20,7 +20,7 @@ An extended version of Docker Card, inspired by [vineetchoudhary/lovelace-docker
 
 - Home Assistant 2025.8 or newer
 - Docker managed via the official Portainer integration (provides all referenced sensors, switches, and buttons)
-- **Optional but recommended:** A running [What's Up Docker (WUD)](https://github.com/getwud/wud) instance with the [WUD Updates Monitor](https://github.com/johro897/What-s-up-Docker-Updates-Monitor) HA integration installed — required for update tracking per container
+- **Optional but recommended:** A running [What's Up Docker (WUD)](https://github.com/getwud/wud) instance with the [WUD Monitor](https://github.com/johro897/wud-monitor) HA integration installed — required for update tracking per container
 - Optional: For non-Portainer environments, equivalent entities (sensors, binary_sensors, switches, scripts, etc.) that expose Docker data and operations
 
 > [!IMPORTANT]
