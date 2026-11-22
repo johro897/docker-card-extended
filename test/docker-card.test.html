@@ -577,6 +577,167 @@
     assertEqual(calls[0].data.entity_id, 'button.wud_scan_all');
   });
 
+  // ---------------------------------------------------------------------
+  // Visual editor (#26). <ha-form> does not exist outside a real HA
+  // frontend, so it is an inert element here: the tests drive the editor by
+  // dispatching "value-changed" on those elements, exactly what ha-form does.
+  // What this CANNOT cover is how ha-form/ha-entity-picker actually render.
+  // ---------------------------------------------------------------------
+  function freshEditor(config, { language = 'en', states = {} } = {}) {
+    const el = document.createElement('docker-card-editor');
+    host.appendChild(el);
+    const events = [];
+    el.addEventListener('config-changed', (e) => events.push(e.detail.config));
+    el.setConfig(config);
+    el.hass = fakeHass({ language, states }).hass;
+    return { el, events };
+  }
+  const forms = (el) => Array.from(el.querySelectorAll('ha-form'));
+  const rowEls = (el) => Array.from(el.querySelectorAll('.dce-row'));
+  const rowForms = (row) => row.querySelectorAll('ha-form');
+  function formChange(form, value) {
+    form.dispatchEvent(new CustomEvent('value-changed', { detail: { value }, bubbles: true }));
+  }
+
+  test('editor: card exposes getConfigElement/getStubConfig and a stub config is accepted by setConfig', () => {
+    const Card = customElements.get('docker-card');
+    assertEqual(Card.getConfigElement().tagName, 'DOCKER-CARD-EDITOR');
+    const stub = Card.getStubConfig();
+    assertTrue(Array.isArray(stub.containers) && stub.containers.length === 0, 'stub should have an empty containers list');
+    freshCard().setConfig(stub);
+  });
+
+  test('editor: builds the card form, the overview form and one row (two forms) per container', () => {
+    const { el } = freshEditor({ title: 'Docker', containers: [{ name: 'plex' }, { name: 'sonarr' }] });
+    assertEqual(forms(el).length, 2 + 2 * 2);
+    const names = rowEls(el).map((r) => r.querySelector('.dce-name').textContent);
+    assertDeepEqual(names, ['plex', 'sonarr']);
+  });
+
+  test('editor: a row without a name falls back to the status entity friendly name, then to "Container N"', () => {
+    const states = { 'sensor.plex': { state: 'running', attributes: { friendly_name: 'Plex Media' } } };
+    const { el } = freshEditor({ containers: [{ status_entity: 'sensor.plex' }, {}] }, { states });
+    const names = rowEls(el).map((r) => r.querySelector('.dce-name').textContent);
+    assertDeepEqual(names, ['Plex Media', 'Container 2']);
+  });
+
+  test('editor: a card-level change keeps every other key (colors, containers) untouched', () => {
+    const containers = [{ name: 'plex', running_color: 'red', tap_action: { action: 'none' } }];
+    const { el, events } = freshEditor({ title: 'A', not_running_color: 'blue', containers });
+    formChange(forms(el)[0], { title: 'B', columns: 2 });
+    const cfg = events[events.length - 1];
+    assertEqual(cfg.title, 'B');
+    assertEqual(cfg.columns, 2);
+    assertEqual(cfg.not_running_color, 'blue');
+    assertDeepEqual(cfg.containers, containers);
+  });
+
+  test('editor: clearing a card-level field removes its key', () => {
+    const { el, events } = freshEditor({ title: 'A', columns: 3, containers: [] });
+    formChange(forms(el)[0], { title: '', columns: 3 });
+    const cfg = events[events.length - 1];
+    assertTrue(!('title' in cfg), 'title should be removed');
+    assertEqual(cfg.columns, 3);
+  });
+
+  test('editor: a container change sets the entity and keeps unknown per-container keys', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex', running_color: 'red', hold_delay: 800 }] });
+    const [main] = rowForms(rowEls(el)[0]);
+    formChange(main, { name: 'plex', status_entity: 'sensor.plex_state' });
+    const c = events[events.length - 1].containers[0];
+    assertEqual(c.status_entity, 'sensor.plex_state');
+    assertEqual(c.running_color, 'red');
+    assertEqual(c.hold_delay, 800);
+  });
+
+  test('editor: the advanced form edits the same container as the main form', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex', status_entity: 'sensor.a' }] });
+    const [, adv] = rowForms(rowEls(el)[0]);
+    formChange(adv, { health_entity: 'sensor.plex_health', graph_hours: 6 });
+    const c = events[events.length - 1].containers[0];
+    assertEqual(c.health_entity, 'sensor.plex_health');
+    assertEqual(c.graph_hours, 6);
+    assertEqual(c.status_entity, 'sensor.a');
+  });
+
+  test('editor: "Add container" appends an empty container, opens its row and emits', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex' }] });
+    el.querySelector('.dce-add').click();
+    const cfg = events[events.length - 1];
+    assertEqual(cfg.containers.length, 2);
+    assertDeepEqual(cfg.containers[1], {});
+    assertEqual(rowEls(el).length, 2);
+    assertTrue(rowEls(el)[1].open, 'the new row should be open');
+  });
+
+  test('editor: remove deletes the right container and move up/down reorders; end buttons are disabled', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] });
+    assertTrue(rowEls(el)[0].querySelector('[data-act="up"]').disabled, 'first row cannot move up');
+    assertTrue(rowEls(el)[2].querySelector('[data-act="down"]').disabled, 'last row cannot move down');
+    rowEls(el)[2].querySelector('[data-act="up"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['a', 'c', 'b']);
+    rowEls(el)[0].querySelector('[data-act="down"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['c', 'a', 'b']);
+    rowEls(el)[1].querySelector('[data-act="remove"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['c', 'b']);
+    assertEqual(rowEls(el).length, 2);
+  });
+
+  test('editor: the legacy singular "container" key is written back as "containers"', () => {
+    const { el, events } = freshEditor({ container: [{ name: 'plex' }] });
+    assertEqual(rowEls(el).length, 1);
+    formChange(rowForms(rowEls(el)[0])[0], { name: 'plex2' });
+    const cfg = events[events.length - 1];
+    assertTrue(!('container' in cfg), 'singular key should be dropped');
+    assertEqual(cfg.containers[0].name, 'plex2');
+  });
+
+  test('editor: docker_overview is created on first value and removed again when emptied', () => {
+    const { el, events } = freshEditor({ containers: [] });
+    const overview = forms(el)[1];
+    formChange(overview, { status: 'sensor.docker_status', updates_summary: true });
+    assertDeepEqual(events[events.length - 1].docker_overview, { status: 'sensor.docker_status', updates_summary: true });
+    formChange(overview, { status: '' });
+    assertTrue(!('docker_overview' in events[events.length - 1]) || events[events.length - 1].docker_overview.updates_summary === true,
+      'only the cleared key may go');
+    formChange(overview, {});
+    assertTrue(!('docker_overview' in events[events.length - 1]), 'an emptied docker_overview should be removed');
+  });
+
+  test('editor: a hass update or a same-size setConfig does not rebuild the rows (no focus loss)', () => {
+    const { el } = freshEditor({ containers: [{ name: 'a' }, { name: 'b' }] });
+    const before = rowEls(el);
+    el.hass = fakeHass({}).hass;
+    el.setConfig({ containers: [{ name: 'a', status_entity: 'sensor.x' }, { name: 'b' }] });
+    const after = rowEls(el);
+    assertTrue(before[0] === after[0] && before[1] === after[1], 'rows must be the same DOM nodes');
+  });
+
+  test('editor: setConfig with a different number of containers rebuilds the rows', () => {
+    const { el } = freshEditor({ containers: [{ name: 'a' }] });
+    el.setConfig({ containers: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] });
+    assertEqual(rowEls(el).length, 3);
+  });
+
+  test('editor: labels follow the HA language and fall back to English', () => {
+    const sv = freshEditor({ containers: [] }, { language: 'sv' });
+    assertEqual(forms(sv.el)[0].computeLabel({ name: 'title' }), 'Titel');
+    assertEqual(sv.el.querySelector('.dce-add').textContent, '+ Lägg till container');
+    const xx = freshEditor({ containers: [] }, { language: 'xx' });
+    assertEqual(forms(xx.el)[0].computeLabel({ name: 'title' }), 'Title');
+  });
+
+  test('editor: every schema field has a label in every language', () => {
+    const { el } = freshEditor({ containers: [{}] });
+    const names = [];
+    forms(el).forEach((f) => f.schema.forEach((s) => names.push(s.name)));
+    ['en', 'sv', 'de', 'fr'].forEach((lang) => {
+      const e = freshEditor({ containers: [] }, { language: lang });
+      const label = forms(e.el)[0].computeLabel;
+      names.forEach((n) => assertTrue(label({ name: n }) !== n, `${lang}: no label for ${n}`));
+    });
+  });
+
   const resultsEl = document.getElementById('results');
   const summaryEl = document.getElementById('summary');
   let passCount = 0;

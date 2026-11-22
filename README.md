@@ -24,6 +24,7 @@ An extended version of Docker Card, inspired by [vineetchoudhary/lovelace-docker
 - [License](#license)
 
 ## Features
+- **Visual editor** — set up the card from the dashboard UI: shared settings at the top, then add containers one at a time. Options the editor doesn't show stay in YAML and are preserved
 - Compact overview of your Docker host (container counts, Docker version, OS, daemon state)
 - Auto-updating container list with live state badges and control actions
 - Collapsible container section
@@ -91,6 +92,7 @@ This walks through the minimum needed to see one real container on the card. It 
        status_entity: sensor.home_assistant_state
        control_entity: switch.home_assistant_container
    ```
+   Prefer clicking over YAML? Add the card from the dashboard's card picker and use the **visual editor** instead: set the shared options at the top, then press **Add container** for each container and pick its entities. Anything the editor doesn't show (colors, state lists, tap/hold actions, domain overrides) stays in the YAML and is kept as is. Saving from the editor writes the list as `containers:` (an older singular `container:` key is converted).
 4. **Save.** You should now see one container row with a live status badge and a toggle. If you instead see **"No containers configured."**, double-check that the `containers:` list above was actually saved as part of the card's YAML (see [Troubleshooting](#troubleshooting)).
 5. From here, add more entries to `containers:` for your other containers, and optionally add a `docker_overview:` block for the host-level summary tile — see [Configuration options](#configuration-options) for everything available, or jump to [Pause / Resume](#pause--resume), [Resource graphs](#resource-graphs-cpu--memory), and [WUD integration](#wud-integration) for the deeper features.
 
@@ -495,6 +497,14 @@ shell_command:
 | Disk usage tiles stuck on "—" / entity shows `unknown` or `unavailable` | Known upstream Portainer/HA limitation, not a card bug — see the note under [docker_overview options](#docker_overview-options). `docker system df` is slow on overlay2 filesystems and can time out ([tracked upstream](https://github.com/home-assistant/core/issues/165617), closed as not planned) |
 
 ## Changelog
+
+### Unreleased
+**Visual config editor** — [#26](https://github.com/johro897/docker-card-extended/issues/26)
+- The card can now be configured from the dashboard UI. Shared settings (title, columns, expand on load, graph defaults) and the Docker overview entities are at the top; containers are added one at a time with **Add container**, each with its main entities and an **Advanced** section (recreate, network, image version, health, WUD update, graph overrides). Rows can be reordered and removed
+- Options the editor does not show (colors, state lists, tap/hold actions, domain overrides, the per-container `graphs` switch) are never touched: they stay in YAML and are preserved when you edit
+- The editor writes the container list as `containers:`; an older singular `container:` key is converted on the first change
+- Labels are available in English, Swedish, German and French
+- This is groundwork for discovering containers from a Portainer endpoint ([#21](https://github.com/johro897/docker-card-extended/issues/21)), which is not part of this change
 
 ### 3.9.0
 **Network I/O graphs** — [#19](https://github.com/johro897/docker-card-extended/issues/19)

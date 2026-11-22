@@ -35,6 +35,14 @@ producing real markup, an unsafe `javascript:` release-notes URL never
 rendering as a link, and the Prune / WUD-scan arm→confirm→service-call
 flows driven through real DOM clicks.
 
+The visual editor (#26) is covered at the logic level: `<ha-form>` is an
+inert element outside a real HA frontend, so the tests dispatch the
+`value-changed` events it would emit and check the resulting `config-changed`
+payloads (unknown keys preserved, add/remove/reorder, legacy `container` key,
+no row rebuild on `hass` updates, labels in all four languages). How
+`ha-form`, `ha-entity-picker` and `ha-icon-picker` actually render is NOT
+covered and needs a real Home Assistant.
+
 Deliberately NOT covered: the CPU/memory sparkline graphs
 (`_historyPoints`/`_sparklineSvg`/`_axisHtml`) — they depend on
 `hass.callApi`'s real `history/period` response shape, which is explicitly
