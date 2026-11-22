@@ -2620,7 +2620,8 @@
     "sensor.cpu_usage_total": "cpu_entity",
     "sensor.memory_usage_percentage": "memory_entity",
     "sensor.memory_usage": "memory_fallback",
-    "sensor.image_version": "image_version_entity",
+    "sensor.image": "image_version_entity",
+    "sensor.image_version": "image_fallback",
     "sensor.container_health_state": "health_entity",
   };
   const PORTAINER_CONTAINER_ORDER = ["status_entity", "control_entity", "restart_entity", "pause_entity", "resume_entity",
@@ -2744,6 +2745,8 @@
       if (excludes.some((r) => r.test(name) || r.test(d.name || ""))) { result.excluded++; return; }
       const roles = pickByTranslationKey(byDevice, d.id, PORTAINER_CONTAINER_ROLES, "portainer");
       if (!roles.memory_entity && roles.memory_fallback) roles.memory_entity = roles.memory_fallback;
+      // Portainer's "image" sensor is the full image:tag; "image_version" (the OCI label) is only a fallback.
+      if (!roles.image_version_entity && roles.image_fallback) roles.image_version_entity = roles.image_fallback;
       if (!includeUnavailable && roles.status_entity && hass.states?.[roles.status_entity]?.state === "unavailable") {
         result.unavailable++;
         return;

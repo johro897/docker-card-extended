@@ -792,6 +792,8 @@
       ent(`button.${slug}_pause`, id, 'portainer', 'pause_container', 'unknown');
       ent(`sensor.${slug}_cpu`, id, 'portainer', 'cpu_usage_total', '3');
       ent(`sensor.${slug}_memory_pct`, id, 'portainer', 'memory_usage_percentage', '10');
+      ent(`sensor.${slug}_image`, id, 'portainer', 'image', `ghcr.io/example/${slug}:1.2`);
+      ent(`sensor.${slug}_image_version`, id, 'portainer', 'image_version', '1.2');
     };
     full('c_plex', 'plex'); full('c_sonarr', 'sonarr'); full('c_db', 'plex_db');
     full('c_ghost', 'ghost', 'unavailable'); full('c_remote', 'remote_app');
@@ -839,6 +841,15 @@
     assertEqual(plex.cpu_entity, 'sensor.plex_cpu');
     assertEqual(plex.memory_entity, 'sensor.plex_memory_pct');
     assertTrue(!('resume_entity' in plex), 'roles the integration did not provide stay absent');
+  });
+
+  test('discover: the image entity is the full image sensor, falling back to image_version only when it is missing', () => {
+    const plex = discover(registryHass(), { endpoint: 'ep1' }).containers.find((c) => c.name === 'plex');
+    assertEqual(plex.image_version_entity, 'sensor.plex_image');
+    const h = registryHass();
+    delete h.entities['sensor.plex_image'];
+    const fallback = discover(h, { endpoint: 'ep1' }).containers.find((c) => c.name === 'plex');
+    assertEqual(fallback.image_version_entity, 'sensor.plex_image_version');
   });
 
   test('discover: exclude globs (comma-separated, * and ?) drop containers and are counted', () => {

@@ -110,7 +110,7 @@ The **Colors** section sets the three card-level accent colors (a color name, a 
 ### Importing containers from Portainer
 With the Portainer integration installed, the visual editor can build the container list for you. Open the card's editor, expand **Import from Portainer**, pick the endpoint, optionally type names to leave out (comma-separated, `*` and `?` allowed, e.g. `*-db, watchtower`), and press **Import containers**.
 
-- It adds one row per container on that endpoint, sorted by name, with the entities Portainer provides (status, start/stop, restart, pause, resume, recreate, CPU, memory, image version, health). Portainer entities are recognised by their internal keys, so this works in any Home Assistant language
+- It adds one row per container on that endpoint, sorted by name, with the entities Portainer provides (status, start/stop, restart, pause, resume, recreate, CPU, memory, the image, health). The image row shows Portainer's full image name with its tag; the version label is only used if that sensor is missing. Portainer entities are recognised by their internal keys, so this works in any Home Assistant language
 - It also fills **empty** `docker_overview` fields from the endpoint (status, counts, versions, disk usage, prune buttons)
 - With [WUD Monitor](https://github.com/johro897/wud-monitor) installed, `update_entity` is filled in by matching container names, and `wud_last_poll` / `wud_scan` in the overview. If the same container name exists on two WUD watchers it is left blank rather than guessed. WUD Monitor releases that have the `container_name` attribute (wud-monitor #32) are matched on the exact name; older versions are matched on the entity name
 - It **only adds**: containers already in the list (same status entity or name) and fields you have already set are never changed, so you can import again after adding containers in Portainer
@@ -527,6 +527,9 @@ shell_command:
 ## Changelog
 
 ### Unreleased
+**Import uses the full image name** — [#29](https://github.com/johro897/docker-card-extended/issues/29)
+- Import from Portainer now fills `image_version_entity` from Portainer's `image` sensor (the full image name with its tag, for example `ghcr.io/home-assistant/home-assistant:2026.11.2`) instead of the version label, which can be missing or inherited from a base image. The label sensor is only a fallback
+
 **Colors in the editor** — [#28](https://github.com/johro897/docker-card-extended/issues/28)
 - New **Colors** section in the visual editor for `running_color`, `not_running_color` and `paused_color`, so a card made with the editor no longer loses colors that a YAML card had. Values are free text (a color name, a hex value or a theme variable); an empty field removes the key and the theme default applies. Default colors are unchanged
 - Labels in English, Swedish, German and French
