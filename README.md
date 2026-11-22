@@ -45,7 +45,7 @@ An extended version of Docker Card, inspired by [vineetchoudhary/lovelace-docker
 
 ## How it works
 > [!IMPORTANT]
-> **This card does not discover anything automatically — not even from Portainer.** It has no Docker socket access and never talks to Docker or Portainer directly. Instead, *you* list each container in YAML and tell the card exactly which Home Assistant entity represents its status, its start/stop switch, and so on. The card then simply displays and reacts to those entities.
+> **The card itself does not discover anything while it runs — not even from Portainer.** It has no Docker socket access and never talks to Docker or Portainer directly. Instead, the container list in your card configuration says exactly which Home Assistant entity represents each container's status, its start/stop switch, and so on, and the card simply displays and reacts to those entities. You can write that list by hand in YAML, or let the visual editor's **Import from Portainer** fill it in once (see [Importing containers](#importing-containers-from-portainer)) — the result is the same explicit list, which you can then edit.
 >
 > If the Portainer integration is installed and running but you haven't added anything under `containers:` yet, the card will correctly show **"No containers configured."** — that message means exactly what it says: no YAML list, no containers shown. It is not an error and does not mean anything is broken. See [Quick start](#quick-start) below to add your first container.
 
@@ -95,6 +95,16 @@ This walks through the minimum needed to see one real container on the card. It 
    Prefer clicking over YAML? Add the card from the dashboard's card picker and use the **visual editor** instead: set the shared options at the top, then press **Add container** for each container and pick its entities. Anything the editor doesn't show (colors, state lists, tap/hold actions, domain overrides) stays in the YAML and is kept as is. Saving from the editor writes the list as `containers:` (an older singular `container:` key is converted).
 4. **Save.** You should now see one container row with a live status badge and a toggle. If you instead see **"No containers configured."**, double-check that the `containers:` list above was actually saved as part of the card's YAML (see [Troubleshooting](#troubleshooting)).
 5. From here, add more entries to `containers:` for your other containers, and optionally add a `docker_overview:` block for the host-level summary tile — see [Configuration options](#configuration-options) for everything available, or jump to [Pause / Resume](#pause--resume), [Resource graphs](#resource-graphs-cpu--memory), and [WUD integration](#wud-integration) for the deeper features.
+
+### Importing containers from Portainer
+With the Portainer integration installed, the visual editor can build the container list for you. Open the card's editor, expand **Import from Portainer**, pick the endpoint, optionally type names to leave out (comma-separated, `*` and `?` allowed, e.g. `*-db, watchtower`), and press **Import containers**.
+
+- It adds one row per container on that endpoint, sorted by name, with the entities Portainer provides (status, start/stop, restart, pause, resume, recreate, CPU, memory, image version, health). Portainer entities are recognised by their internal keys, so this works in any Home Assistant language
+- It also fills **empty** `docker_overview` fields from the endpoint (status, counts, versions, disk usage, prune buttons)
+- With [WUD Monitor](https://github.com/johro897/wud-monitor) installed, `update_entity` is filled in by matching container names, and `wud_last_poll` / `wud_scan` in the overview. If the same container name exists on two WUD watchers it is left blank rather than guessed. WUD Monitor 2.6.5 and newer expose the exact container name; older versions are matched on the entity name
+- It **only adds**: containers already in the list (same status entity or name) and fields you have already set are never changed, so you can import again after adding containers in Portainer
+- Containers that no longer exist in Portainer (their status entity is `unavailable`) are skipped
+- Memory uses Portainer's percentage sensor, or the absolute one if the percentage sensor is not enabled
 
 ## Configuration options
 ### Card options
@@ -504,7 +514,10 @@ shell_command:
 - Options the editor does not show (colors, state lists, tap/hold actions, domain overrides, the per-container `graphs` switch) are never touched: they stay in YAML and are preserved when you edit
 - The editor writes the container list as `containers:`; an older singular `container:` key is converted on the first change
 - Labels are available in English, Swedish, German and French
-- This is groundwork for discovering containers from a Portainer endpoint ([#21](https://github.com/johro897/docker-card-extended/issues/21)), which is not part of this change
+
+**Import containers from a Portainer endpoint** — [#21](https://github.com/johro897/docker-card-extended/issues/21)
+- New **Import from Portainer** section in the editor: pick an endpoint, optionally exclude names with `*`/`?` patterns, and it adds the endpoint's containers with their Portainer entities, plus empty `docker_overview` fields. WUD Monitor entities (`update_entity`, last scan, force scan) are matched by container name when WUD Monitor is installed
+- Import only adds: existing containers and fields you have set are never overwritten. The card still discovers nothing while it runs; the result is the same explicit container list as before
 
 ### 3.9.0
 **Network I/O graphs** — [#19](https://github.com/johro897/docker-card-extended/issues/19)

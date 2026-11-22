@@ -2511,6 +2511,9 @@
       add_container: "Add container", remove_container: "Remove container", move_up: "Move up", move_down: "Move down",
       container_n: "Container {n}",
       note: "Options that are not shown here (colors, states, actions, domain overrides) stay in YAML and are kept when you edit.",
+      import_title: "Import from Portainer", import_endpoint: "Endpoint", import_exclude: "Exclude containers (comma-separated, * allowed)",
+      import_button: "Import containers", import_none: "No Portainer endpoint found in Home Assistant.",
+      import_result: "Added {added} containers, skipped {skipped} already in the list.", import_overview: "Filled {n} empty overview fields.", import_nothing: "Nothing to import.",
     },
     sv: {
       title: "Titel", columns: "Max antal kolumner", containers_expanded: "Expandera containerlistan vid start",
@@ -2532,6 +2535,9 @@
       add_container: "Lägg till container", remove_container: "Ta bort container", move_up: "Flytta upp", move_down: "Flytta ner",
       container_n: "Container {n}",
       note: "Inställningar som inte visas här (färger, tillstånd, åtgärder, domänöverskrivningar) ligger kvar i YAML och bevaras när du redigerar.",
+      import_title: "Importera från Portainer", import_endpoint: "Endpoint", import_exclude: "Uteslut containrar (kommaseparerat, * tillåtet)",
+      import_button: "Importera containrar", import_none: "Ingen Portainer-endpoint hittades i Home Assistant.",
+      import_result: "Lade till {added} containrar, hoppade över {skipped} som redan finns i listan.", import_overview: "Fyllde i {n} tomma översiktsfält.", import_nothing: "Inget att importera.",
     },
     de: {
       title: "Titel", columns: "Maximale Spaltenzahl", containers_expanded: "Containerliste beim Laden ausklappen",
@@ -2553,6 +2559,9 @@
       add_container: "Container hinzufügen", remove_container: "Container entfernen", move_up: "Nach oben", move_down: "Nach unten",
       container_n: "Container {n}",
       note: "Optionen, die hier nicht angezeigt werden (Farben, Zustände, Aktionen, Domain-Überschreibungen), bleiben in YAML erhalten.",
+      import_title: "Aus Portainer importieren", import_endpoint: "Endpoint", import_exclude: "Container ausschließen (kommagetrennt, * erlaubt)",
+      import_button: "Container importieren", import_none: "Kein Portainer-Endpoint in Home Assistant gefunden.",
+      import_result: "{added} Container hinzugefügt, {skipped} bereits vorhandene übersprungen.", import_overview: "{n} leere Übersichtsfelder ausgefüllt.", import_nothing: "Nichts zu importieren.",
     },
     fr: {
       title: "Titre", columns: "Nombre maximal de colonnes", containers_expanded: "Déplier la liste des conteneurs au chargement",
@@ -2574,6 +2583,9 @@
       add_container: "Ajouter un conteneur", remove_container: "Supprimer le conteneur", move_up: "Monter", move_down: "Descendre",
       container_n: "Conteneur {n}",
       note: "Les options non affichées ici (couleurs, états, actions, remplacements de domaine) restent en YAML et sont conservées.",
+      import_title: "Importer depuis Portainer", import_endpoint: "Endpoint", import_exclude: "Exclure des conteneurs (séparés par des virgules, * autorisé)",
+      import_button: "Importer les conteneurs", import_none: "Aucun endpoint Portainer trouvé dans Home Assistant.",
+      import_result: "{added} conteneurs ajoutés, {skipped} déjà présents ignorés.", import_overview: "{n} champs de vue d'ensemble vides remplis.", import_nothing: "Rien à importer.",
     },
   };
   const editorT = (hass, key, repl) => {
@@ -2582,6 +2594,164 @@
     const s = dict[key] ?? EDITOR_TRANSLATIONS[DEFAULT_LANGUAGE][key] ?? key;
     return repl ? s.replace(/\{(\w+)\}/g, (m, k) => (k in repl ? repl[k] : m)) : s;
   };
+  // ── Discovery from the HA registries (#21) ─────────────────────────────────
+  // Pure functions over hass.devices / hass.entities / hass.states, used only
+  // by the editor's "Import from Portainer" action: the card itself still
+  // discovers nothing at runtime. Portainer entities are recognised by their
+  // stable translation_key (never by name or language); WUD Monitor entities
+  // have no translation_key, so they are matched by container name.
+  const PORTAINER_MAKER = "Portainer";
+  const WUD_MAKER = "What's Up Docker";
+  const PORTAINER_CONTAINER_ROLES = {
+    "sensor.container_state": "status_entity",
+    "switch.container": "control_entity",
+    "button.restart_container": "restart_entity",
+    "button.pause_container": "pause_entity",
+    "button.resume_container": "resume_entity",
+    "button.recreate_container": "recreate_entity",
+    "sensor.cpu_usage_total": "cpu_entity",
+    "sensor.memory_usage_percentage": "memory_entity",
+    "sensor.memory_usage": "memory_fallback",
+    "sensor.image_version": "image_version_entity",
+    "sensor.container_health_state": "health_entity",
+  };
+  const PORTAINER_CONTAINER_ORDER = ["status_entity", "control_entity", "restart_entity", "pause_entity", "resume_entity",
+    "recreate_entity", "cpu_entity", "memory_entity", "image_version_entity", "health_entity"];
+  const PORTAINER_ENDPOINT_ROLES = {
+    "binary_sensor.status": "status",
+    "sensor.containers_count": "container_count",
+    "sensor.containers_running": "containers_running",
+    "sensor.containers_paused": "containers_paused",
+    "sensor.containers_stopped": "containers_stopped",
+    "sensor.docker_version": "docker_version",
+    "sensor.images_count": "image_count",
+    "sensor.operating_system": "operating_system",
+    "sensor.operating_system_version": "operating_system_version",
+    "sensor.container_disk_usage_total_size": "container_disk_usage",
+    "sensor.image_disk_usage_total_size": "image_disk_usage",
+    "sensor.volume_disk_usage_total_size": "volume_disk_usage",
+    "button.images_prune": "prune_images",
+    "button.volumes_prune": "prune_volumes",
+    "button.networks_prune": "prune_networks",
+  };
+  const deviceLabel = (d) => d.name_by_user || d.name || d.id;
+  const byLabel = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" });
+  const globToRegExp = (glob) =>
+    new RegExp("^" + glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
+  const parseExclude = (input) =>
+    (Array.isArray(input) ? input : String(input || "").split(","))
+      .map((s) => String(s).trim()).filter(Boolean).map(globToRegExp);
+  function portainerEndpoints(hass) {
+    return Object.values(hass?.devices || {})
+      .filter((d) => d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint" && !d.disabled_by)
+      .map((d) => ({ id: d.id, name: deviceLabel(d) }))
+      .sort(byLabel);
+  }
+  /** A container's endpoint device: follow via_device_id (container → stack → endpoint, or container → endpoint). */
+  function endpointOf(hass, device) {
+    let d = device;
+    for (let i = 0; i < 4 && d; i++) {
+      if (d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint") return d;
+      d = d.via_device_id ? hass.devices[d.via_device_id] : null;
+    }
+    return null;
+  }
+  function entitiesByDevice(hass) {
+    const out = {};
+    Object.keys(hass.entities || {}).forEach((id) => {
+      const e = hass.entities[id];
+      if (e && e.device_id) (out[e.device_id] ||= []).push({ id, e });
+    });
+    return out;
+  }
+  /** Map of {role → entity_id} for one device, matching "<domain>.<translation_key>" against `roles`. */
+  function pickByTranslationKey(byDevice, deviceId, roles, platform) {
+    const out = {};
+    (byDevice[deviceId] || []).forEach(({ id, e }) => {
+      if (e.platform !== platform || !e.translation_key) return;
+      const role = roles[id.split(".")[0] + "." + e.translation_key];
+      if (role && !out[role]) out[role] = id;
+    });
+    return out;
+  }
+  const entityFriendlyName = (hass, id, e) => hass.states?.[id]?.attributes?.friendly_name || e?.name || "";
+  /** WUD "<container> Update Available" sensors, keyed by lower-cased container name. */
+  function wudUpdateSensors(hass) {
+    const map = new Map();
+    Object.keys(hass.entities || {}).forEach((id) => {
+      const e = hass.entities[id];
+      if (!e || e.platform !== "wud_monitor" || !id.startsWith("sensor.")) return;
+      const state = hass.states?.[id];
+      if (state && state.state === "unavailable") return;
+      let name = state?.attributes?.container_name;
+      if (!name) {
+        const fn = entityFriendlyName(hass, id, e);
+        if (!/\sUpdate Available$/i.test(fn)) return;
+        // "<name> Update Available", or "<name> (<watcher>) Update Available" on a non-default watcher
+        name = fn.replace(/\sUpdate Available$/i, "").replace(/\s\([^()]*\)$/, "");
+      }
+      const key = String(name).toLowerCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(id);
+    });
+    return map;
+  }
+  function wudOverview(hass, byDevice) {
+    const controllers = Object.values(hass.devices || {})
+      .filter((d) => d.manufacturer === WUD_MAKER && d.model === "Controller" && !d.disabled_by);
+    if (controllers.length !== 1) return {};
+    const out = {};
+    (byDevice[controllers[0].id] || []).forEach(({ id, e }) => {
+      if (e.platform !== "wud_monitor") return;
+      const fn = entityFriendlyName(hass, id, e);
+      if (id.startsWith("sensor.") && /\sLast Poll$/i.test(fn) && !out.wud_last_poll) out.wud_last_poll = id;
+      if (id.startsWith("button.") && /\sForce Scan All$/i.test(fn) && !out.wud_scan) out.wud_scan = id;
+    });
+    return out;
+  }
+  /**
+   * Containers (and docker_overview entities) found for one Portainer endpoint.
+   * `endpoint` is a device id or name; `exclude` is a comma-separated list or an
+   * array of globs ("*-db"). Containers whose status sensor is `unavailable`
+   * (gone from Portainer) are skipped unless `includeUnavailable`.
+   */
+  function discoverFromRegistry(hass, { endpoint, exclude, includeUnavailable } = {}) {
+    const result = { containers: [], overview: {}, excluded: 0, unavailable: 0 };
+    if (!hass || !hass.devices || !hass.entities) return result;
+    const byDevice = entitiesByDevice(hass);
+    const excludes = parseExclude(exclude);
+    const wud = wudUpdateSensors(hass);
+    const endpointDevice = endpoint
+      ? Object.values(hass.devices).find((d) => d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint"
+          && (d.id === endpoint || deviceLabel(d) === endpoint))
+      : null;
+    if (endpoint && !endpointDevice) return result;
+    Object.values(hass.devices).forEach((d) => {
+      if (d.manufacturer !== PORTAINER_MAKER || d.model !== "Container" || d.disabled_by) return;
+      if (endpointDevice) {
+        const ep = endpointOf(hass, d);
+        if (!ep || ep.id !== endpointDevice.id) return;
+      }
+      const name = deviceLabel(d);
+      if (excludes.some((r) => r.test(name) || r.test(d.name || ""))) { result.excluded++; return; }
+      const roles = pickByTranslationKey(byDevice, d.id, PORTAINER_CONTAINER_ROLES, "portainer");
+      if (!roles.memory_entity && roles.memory_fallback) roles.memory_entity = roles.memory_fallback;
+      if (!includeUnavailable && roles.status_entity && hass.states?.[roles.status_entity]?.state === "unavailable") {
+        result.unavailable++;
+        return;
+      }
+      const entry = { name };
+      PORTAINER_CONTAINER_ORDER.forEach((k) => { if (roles[k]) entry[k] = roles[k]; });
+      // Only an unambiguous WUD match is used (the same name on two hosts is left blank).
+      const matches = wud.get(String(d.name || name).toLowerCase());
+      if (matches && matches.length === 1) entry.update_entity = matches[0];
+      result.containers.push(entry);
+    });
+    result.containers.sort(byLabel);
+    if (endpointDevice) result.overview = { ...pickByTranslationKey(byDevice, endpointDevice.id, PORTAINER_ENDPOINT_ROLES, "portainer") };
+    Object.assign(result.overview, wudOverview(hass, byDevice));
+    return result;
+  }
   const edEntity = (name, domain) => ({ name, selector: { entity: domain ? { domain } : {} } });
   const edNumber = (name, min, max) => ({ name, selector: { number: { min, max, step: 1, mode: "box" } } });
   const EDITOR_CARD_SCHEMA = [
@@ -2632,7 +2802,10 @@
     .dce-body { padding: 0 12px 12px; }
     .dce-sub { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--secondary-text-color); }
     .dce-heading { font-weight: 600; color: var(--primary-text-color); }
-    .dce-add { min-height: 44px; border: 1px dashed var(--primary-color); border-radius: 12px; background: transparent; color: var(--primary-color); font-size: 0.95rem; cursor: pointer; }
+    .dce-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--secondary-text-color); font-size: 0.85rem; }
+    .dce select, .dce input[type="text"] { min-height: 44px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
+    .dce-wide { display: block; width: 100%; margin: 8px 0; }
+    .dce-wide, .dce-add { min-height: 44px; border: 1px dashed var(--primary-color); border-radius: 12px; background: transparent; color: var(--primary-color); font-size: 0.95rem; cursor: pointer; }
     .dce-note { margin: 0; color: var(--secondary-text-color); font-size: 0.85rem; }
     .dce summary:focus-visible, .dce button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
   `;
@@ -2683,6 +2856,15 @@
           <div class="dce-card"></div>
           <details class="dce-block dce-overview"><summary class="dce-sum"></summary><div class="dce-body"></div></details>
           <div class="dce-heading"></div>
+          <details class="dce-block dce-import">
+            <summary class="dce-sum"></summary>
+            <div class="dce-body">
+              <label class="dce-field"><span class="dce-lbl-endpoint"></span><select class="dce-endpoint"></select></label>
+              <label class="dce-field"><span class="dce-lbl-exclude"></span><input type="text" class="dce-exclude" placeholder="*-db, watchtower"></label>
+              <button type="button" class="dce-wide dce-import-btn"></button>
+              <p class="dce-note dce-import-msg" role="status"></p>
+            </div>
+          </details>
           <div class="dce-list"></div>
           <button type="button" class="dce-add"></button>
           <p class="dce-note"></p>
@@ -2692,6 +2874,7 @@
       this._overviewForm = this._makeForm(EDITOR_OVERVIEW_SCHEMA, (v) => this._onOverviewChange(v));
       this.querySelector(".dce-overview .dce-body").appendChild(this._overviewForm);
       this.querySelector(".dce-add").addEventListener("click", () => this._addContainer());
+      this.querySelector(".dce-import-btn").addEventListener("click", () => this._import());
       const list = this.querySelector(".dce-list");
       list.addEventListener("click", (e) => this._onListClick(e));
       // "toggle" does not bubble; capture it to remember which rows are open.
@@ -2703,6 +2886,7 @@
       }, true);
       this._built = true;
       this._labels();
+      this._refreshEndpoints();
       this._renderRows();
       this._pushData();
     }
@@ -2725,9 +2909,61 @@
       this.querySelector(".dce-overview > summary").textContent = t("section_overview");
       this.querySelector(".dce-heading").textContent = t("section_containers");
       this.querySelector(".dce-add").textContent = "+ " + t("add_container");
-      this.querySelector(".dce-note").textContent = t("note");
+      this.querySelector(".dce-note:not(.dce-import-msg)").textContent = t("note");
+      this.querySelector(".dce-import > summary").textContent = t("import_title");
+      this.querySelector(".dce-lbl-endpoint").textContent = t("import_endpoint");
+      this.querySelector(".dce-lbl-exclude").textContent = t("import_exclude");
+      this.querySelector(".dce-import-btn").textContent = t("import_button");
+    }
+    /** (Re)fill the endpoint list from the device registry, keeping the current choice when it still exists. */
+    _refreshEndpoints() {
+      const select = this.querySelector(".dce-endpoint");
+      const endpoints = portainerEndpoints(this._hass);
+      const previous = select.value;
+      select.textContent = "";
+      endpoints.forEach((ep) => {
+        const o = document.createElement("option");
+        o.value = ep.id;
+        o.textContent = ep.name;
+        select.appendChild(o);
+      });
+      if (endpoints.some((ep) => ep.id === previous)) select.value = previous;
+      this._lastDevices = this._hass?.devices;
+      this.querySelector(".dce-import-btn").disabled = endpoints.length === 0;
+      if (!endpoints.length) this.querySelector(".dce-import-msg").textContent = editorT(this._hass, "import_none");
+      else if (this.querySelector(".dce-import-msg").textContent === editorT(this._hass, "import_none")) this.querySelector(".dce-import-msg").textContent = "";
+    }
+    _discover(options) { return discoverFromRegistry(this._hass, options); }
+    /** Adds the endpoint's containers that are not in the list yet and fills empty docker_overview fields. Never overwrites. */
+    _import() {
+      const found = this._discover({
+        endpoint: this.querySelector(".dce-endpoint").value,
+        exclude: this.querySelector(".dce-exclude").value,
+      });
+      const existing = this._containers();
+      const known = (c) => existing.some((e) =>
+        (c.status_entity && e.status_entity === c.status_entity) || String(e.name || "").toLowerCase() === c.name.toLowerCase());
+      const fresh = found.containers.filter((c) => !known(c));
+      if (fresh.length) this._setContainers(existing.concat(fresh));
+      const overview = { ...(this._config.docker_overview || {}) };
+      let filled = 0;
+      Object.keys(found.overview).forEach((k) => { if (!overview[k]) { overview[k] = found.overview[k]; filled++; } });
+      if (filled) this._config = { ...this._config, docker_overview: overview };
+      const msg = this.querySelector(".dce-import-msg");
+      if (!fresh.length && !filled && !found.containers.length) {
+        msg.textContent = editorT(this._hass, "import_nothing");
+        return;
+      }
+      msg.textContent = editorT(this._hass, "import_result", { added: fresh.length, skipped: found.containers.length - fresh.length })
+        + (filled ? " " + editorT(this._hass, "import_overview", { n: filled }) : "");
+      if (fresh.length || filled) {
+        this._renderRows();
+        this._pushData();
+        this._emit();
+      }
     }
     _applyHass() {
+      if (this._hass?.devices !== this._lastDevices) this._refreshEndpoints();
       const forms = [this._cardForm, this._overviewForm];
       this._rows.forEach((r) => forms.push(r.main, r.adv));
       forms.forEach((f) => { if (f.hass !== this._hass) f.hass = this._hass; });
