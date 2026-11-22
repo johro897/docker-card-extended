@@ -101,7 +101,7 @@ With the Portainer integration installed, the visual editor can build the contai
 
 - It adds one row per container on that endpoint, sorted by name, with the entities Portainer provides (status, start/stop, restart, pause, resume, recreate, CPU, memory, image version, health). Portainer entities are recognised by their internal keys, so this works in any Home Assistant language
 - It also fills **empty** `docker_overview` fields from the endpoint (status, counts, versions, disk usage, prune buttons)
-- With [WUD Monitor](https://github.com/johro897/wud-monitor) installed, `update_entity` is filled in by matching container names, and `wud_last_poll` / `wud_scan` in the overview. If the same container name exists on two WUD watchers it is left blank rather than guessed. WUD Monitor 2.6.5 and newer expose the exact container name; older versions are matched on the entity name
+- With [WUD Monitor](https://github.com/johro897/wud-monitor) installed, `update_entity` is filled in by matching container names, and `wud_last_poll` / `wud_scan` in the overview. If the same container name exists on two WUD watchers it is left blank rather than guessed. WUD Monitor releases that have the `container_name` attribute (wud-monitor #32) are matched on the exact name; older versions are matched on the entity name
 - It **only adds**: containers already in the list (same status entity or name) and fields you have already set are never changed, so you can import again after adding containers in Portainer
 - Containers that no longer exist in Portainer (their status entity is `unavailable`) are skipped
 - Memory uses Portainer's percentage sensor, or the absolute one if the percentage sensor is not enabled
