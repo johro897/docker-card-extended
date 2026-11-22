@@ -2508,6 +2508,8 @@
       prune_volumes: "Prune volumes button", prune_networks: "Prune networks button",
       updates_summary: "Show the \"updates available\" tile",
       section_overview: "Docker overview", section_containers: "Containers", advanced: "Advanced",
+      running_color: "Running color", not_running_color: "Stopped color", paused_color: "Paused color", section_colors: "Colors",
+      help_colors: "A color name, a hex value or a theme variable, for example green, #2e8f57 or var(--success-color). Empty uses the theme default.",
       add_container: "Add container", remove_container: "Remove container", move_up: "Move up", move_down: "Move down",
       container_n: "Container {n}",
       note: "Options that are not shown here (colors, states, actions, domain overrides) stay in YAML and are kept when you edit.",
@@ -2532,6 +2534,8 @@
       prune_volumes: "Knapp: rensa volymer", prune_networks: "Knapp: rensa nätverk",
       updates_summary: "Visa rutan \"uppdateringar tillgängliga\"",
       section_overview: "Docker-översikt", section_containers: "Containrar", advanced: "Avancerat",
+      running_color: "Färg för körande", not_running_color: "Färg för stoppade", paused_color: "Färg för pausade", section_colors: "Färger",
+      help_colors: "Ett färgnamn, ett hex-värde eller en temavariabel, till exempel green, #2e8f57 eller var(--success-color). Tomt använder temats standard.",
       add_container: "Lägg till container", remove_container: "Ta bort container", move_up: "Flytta upp", move_down: "Flytta ner",
       container_n: "Container {n}",
       note: "Inställningar som inte visas här (färger, tillstånd, åtgärder, domänöverskrivningar) ligger kvar i YAML och bevaras när du redigerar.",
@@ -2556,6 +2560,8 @@
       prune_volumes: "Schaltfläche: Volumes bereinigen", prune_networks: "Schaltfläche: Netzwerke bereinigen",
       updates_summary: "Kachel „Updates verfügbar“ anzeigen",
       section_overview: "Docker-Übersicht", section_containers: "Container", advanced: "Erweitert",
+      running_color: "Farbe für laufend", not_running_color: "Farbe für gestoppt", paused_color: "Farbe für pausiert", section_colors: "Farben",
+      help_colors: "Ein Farbname, ein Hex-Wert oder eine Theme-Variable, zum Beispiel green, #2e8f57 oder var(--success-color). Leer verwendet den Theme-Standard.",
       add_container: "Container hinzufügen", remove_container: "Container entfernen", move_up: "Nach oben", move_down: "Nach unten",
       container_n: "Container {n}",
       note: "Optionen, die hier nicht angezeigt werden (Farben, Zustände, Aktionen, Domain-Überschreibungen), bleiben in YAML erhalten.",
@@ -2580,6 +2586,8 @@
       prune_volumes: "Bouton : nettoyer les volumes", prune_networks: "Bouton : nettoyer les réseaux",
       updates_summary: "Afficher la tuile « mises à jour disponibles »",
       section_overview: "Vue d'ensemble Docker", section_containers: "Conteneurs", advanced: "Avancé",
+      running_color: "Couleur en cours", not_running_color: "Couleur arrêté", paused_color: "Couleur en pause", section_colors: "Couleurs",
+      help_colors: "Un nom de couleur, une valeur hex ou une variable de thème, par exemple green, #2e8f57 ou var(--success-color). Vide : valeur par défaut du thème.",
       add_container: "Ajouter un conteneur", remove_container: "Supprimer le conteneur", move_up: "Monter", move_down: "Descendre",
       container_n: "Conteneur {n}",
       note: "Les options non affichées ici (couleurs, états, actions, remplacements de domaine) restent en YAML et sont conservées.",
@@ -2763,6 +2771,11 @@
     edNumber("graph_height", 16, 200),
     edNumber("graph_refresh", 30, 3600),
   ];
+  const EDITOR_COLORS_SCHEMA = [
+    { name: "running_color", selector: { text: {} } },
+    { name: "not_running_color", selector: { text: {} } },
+    { name: "paused_color", selector: { text: {} } },
+  ];
   const EDITOR_OVERVIEW_SCHEMA = [
     edEntity("status"),
     edEntity("container_count", "sensor"), edEntity("containers_running", "sensor"),
@@ -2801,6 +2814,7 @@
     .dce-btn[disabled] { opacity: 0.35; cursor: default; }
     .dce-body { padding: 0 12px 12px; }
     .dce-sub { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--secondary-text-color); }
+    .dce-hint { margin: 8px 0 0; color: var(--secondary-text-color); font-size: 0.85rem; }
     .dce-heading { font-weight: 600; color: var(--primary-text-color); }
     .dce-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--secondary-text-color); font-size: 0.85rem; }
     .dce select, .dce input[type="text"] { min-height: 44px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
@@ -2854,6 +2868,7 @@
       this.innerHTML = `<style>${EDITOR_CSS}</style>
         <div class="dce">
           <div class="dce-card"></div>
+          <details class="dce-block dce-colors"><summary class="dce-sum"></summary><div class="dce-body"><p class="dce-hint"></p></div></details>
           <details class="dce-block dce-overview"><summary class="dce-sum"></summary><div class="dce-body"></div></details>
           <div class="dce-heading"></div>
           <details class="dce-block dce-import">
@@ -2871,6 +2886,8 @@
         </div>`;
       this._cardForm = this._makeForm(EDITOR_CARD_SCHEMA, (v) => this._onCardChange(v));
       this.querySelector(".dce-card").appendChild(this._cardForm);
+      this._colorsForm = this._makeForm(EDITOR_COLORS_SCHEMA, (v) => this._onColorsChange(v));
+      this.querySelector(".dce-colors .dce-body").appendChild(this._colorsForm);
       this._overviewForm = this._makeForm(EDITOR_OVERVIEW_SCHEMA, (v) => this._onOverviewChange(v));
       this.querySelector(".dce-overview .dce-body").appendChild(this._overviewForm);
       this.querySelector(".dce-add").addEventListener("click", () => this._addContainer());
@@ -2907,6 +2924,8 @@
     _labels() {
       const t = (k) => editorT(this._hass, k);
       this.querySelector(".dce-overview > summary").textContent = t("section_overview");
+      this.querySelector(".dce-colors > summary").textContent = t("section_colors");
+      this.querySelector(".dce-hint").textContent = t("help_colors");
       this.querySelector(".dce-heading").textContent = t("section_containers");
       this.querySelector(".dce-add").textContent = "+ " + t("add_container");
       this.querySelector(".dce-note:not(.dce-import-msg)").textContent = t("note");
@@ -2964,7 +2983,7 @@
     }
     _applyHass() {
       if (this._hass?.devices !== this._lastDevices) this._refreshEndpoints();
-      const forms = [this._cardForm, this._overviewForm];
+      const forms = [this._cardForm, this._colorsForm, this._overviewForm];
       this._rows.forEach((r) => forms.push(r.main, r.adv));
       forms.forEach((f) => { if (f.hass !== this._hass) f.hass = this._hass; });
       this._rows.forEach((r, i) => this._setRowName(r, this._containers()[i], i));
@@ -2972,7 +2991,9 @@
     _pushData() {
       this._cardForm.hass = this._hass;
       this._overviewForm.hass = this._hass;
+      this._colorsForm.hass = this._hass;
       this._setData(this._cardForm, editorPick(this._config, EDITOR_CARD_SCHEMA));
+      this._setData(this._colorsForm, editorPick(this._config, EDITOR_COLORS_SCHEMA));
       this._setData(this._overviewForm, { ...(this._config.docker_overview || {}) });
     }
     _sync() {
@@ -3052,6 +3073,10 @@
     }
     _onCardChange(value) {
       this._config = editorApply(this._config, EDITOR_CARD_SCHEMA, value);
+      this._emit();
+    }
+    _onColorsChange(value) {
+      this._config = editorApply(this._config, EDITOR_COLORS_SCHEMA, value);
       this._emit();
     }
     _onOverviewChange(value) {

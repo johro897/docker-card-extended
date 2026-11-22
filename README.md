@@ -105,7 +105,7 @@ Add the card from the dashboard's card picker and the editor opens. From top to 
 3. **Containers:** press **Add container** for each one. Every row has its main entities (name, icon, status, start/stop, restart, pause, resume, CPU, memory) and an **Advanced** section (recreate, network RX/TX, image version, health, WUD update, graph overrides). Rows can be moved up and down or removed
 4. **Import from Portainer** (see below) fills the same rows for you
 
-Colors, state lists, tap/hold actions, domain overrides and the per-container `graphs` switch are not shown in the editor; they stay in YAML and are kept as they are when you edit. The editor writes the list as `containers:` (an older singular `container:` is converted). You can switch to the YAML editor at any time.
+The **Colors** section sets the three card-level accent colors (a color name, a hex value or a theme variable). Per-container colors, state lists, tap/hold actions, domain overrides and the per-container `graphs` switch are not shown in the editor; they stay in YAML and are kept as they are when you edit. The editor writes the list as `containers:` (an older singular `container:` is converted). You can switch to the YAML editor at any time.
 
 ### Importing containers from Portainer
 With the Portainer integration installed, the visual editor can build the container list for you. Open the card's editor, expand **Import from Portainer**, pick the endpoint, optionally type names to leave out (comma-separated, `*` and `?` allowed, e.g. `*-db, watchtower`), and press **Import containers**.
@@ -124,8 +124,8 @@ With the Portainer integration installed, the visual editor can build the contai
 | `title` | No | `Docker Card` | Card header text |
 | `containers_expanded` | No | `false` | Expand container list on load |
 | `columns` | No | `1` | Maximum number of columns — reduces automatically on smaller screens |
-| `running_color` | No | Theme value | Global accent color for running containers |
-| `not_running_color` | No | Theme value | Global accent color for stopped containers |
+| `running_color` | No | Theme value (`--state-active-color`, which is **amber** in Home Assistant's default theme) | Global accent color for running containers. Set it (for example `green`) if you want running to look different from paused |
+| `not_running_color` | No | Theme value (`--state-error-color`) | Global accent color for stopped containers |
 | `paused_color` | No | `#f4b942` (amber) | Global accent color for paused containers |
 | `graphs` | No | `false` | Show CPU/Memory history sparklines instead of plain text values — overridable per container |
 | `graph_hours` | No | `2` | History window for graphs, in hours — overridable per container |
@@ -502,6 +502,7 @@ shell_command:
 | Import from Portainer says "No Portainer endpoint found" | The editor lists devices from the Portainer integration whose model is *Endpoint*. Check **Settings → Devices & services → Portainer** that the integration is loaded and its endpoint device exists and is enabled |
 | Import added a container but `update_entity` is empty | WUD Monitor is not installed, the container is not in WUD, the name differs between Portainer and WUD, or the same name exists on two WUD watchers (left blank on purpose). Set `update_entity` by hand, or update WUD Monitor to a release with the `container_name` attribute |
 | Import skipped containers I expected | Containers whose status entity is `unavailable` (gone from Portainer) are skipped, as are names matching your exclude patterns |
+| Running, paused and stopped containers all look the same amber/yellow | A card made with the editor has no colors set, and `running_color` then follows Home Assistant's theme, which is amber in the default theme (the same as `paused_color`). Set the three colors in the editor's **Colors** section, or `running_color: green` / `not_running_color: red` in YAML |
 | Colors not updating | Reload the dashboard after changing color values; check for typos in CSS variables or hex codes |
 | Toggle not working | Ensure `control_entity` uses a supported domain (`switch`, `input_boolean`, etc.) — `binary_sensor` is read-only |
 | Container stopped/started but the card doesn't update right away | The card re-renders as soon as `status_entity`'s state actually changes in `hass.states` — if it lags, the delay is on Portainer's side (it polls the Docker daemon rather than reacting instantly), not the card. Check **Developer Tools → States** for the same entity: if it's slow to update there too, this is expected Portainer integration behavior, not a card bug |
@@ -524,6 +525,11 @@ shell_command:
 | Disk usage tiles stuck on "—" / entity shows `unknown` or `unavailable` | Known upstream Portainer/HA limitation, not a card bug — see the note under [docker_overview options](#docker_overview-options). `docker system df` is slow on overlay2 filesystems and can time out ([tracked upstream](https://github.com/home-assistant/core/issues/165617), closed as not planned) |
 
 ## Changelog
+
+### Unreleased
+**Colors in the editor** — [#28](https://github.com/johro897/docker-card-extended/issues/28)
+- New **Colors** section in the visual editor for `running_color`, `not_running_color` and `paused_color`, so a card made with the editor no longer loses colors that a YAML card had. Values are free text (a color name, a hex value or a theme variable); an empty field removes the key and the theme default applies. Default colors are unchanged
+- Labels in English, Swedish, German and French
 
 ### 3.10.0
 **Visual config editor** — [#26](https://github.com/johro897/docker-card-extended/issues/26)

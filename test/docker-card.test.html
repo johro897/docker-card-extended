@@ -609,7 +609,7 @@
 
   test('editor: builds the card form, the overview form and one row (two forms) per container', () => {
     const { el } = freshEditor({ title: 'Docker', containers: [{ name: 'plex' }, { name: 'sonarr' }] });
-    assertEqual(forms(el).length, 2 + 2 * 2);
+    assertEqual(forms(el).length, 3 + 2 * 2);
     const names = rowEls(el).map((r) => r.querySelector('.dce-name').textContent);
     assertDeepEqual(names, ['plex', 'sonarr']);
   });
@@ -630,6 +630,30 @@
     assertEqual(cfg.columns, 2);
     assertEqual(cfg.not_running_color, 'blue');
     assertDeepEqual(cfg.containers, containers);
+  });
+
+  test('editor: the Colors form sets the three card colors and keeps every other key', () => {
+    const containers = [{ name: 'plex', running_color: 'blue' }];
+    const { el, events } = freshEditor({ title: 'A', containers });
+    const colors = forms(el)[1];
+    assertDeepEqual(colors.schema.map((s) => s.name), ['running_color', 'not_running_color', 'paused_color']);
+    formChange(colors, { running_color: 'green', not_running_color: 'red' });
+    const cfg = events[events.length - 1];
+    assertEqual(cfg.running_color, 'green');
+    assertEqual(cfg.not_running_color, 'red');
+    assertEqual(cfg.title, 'A');
+    assertDeepEqual(cfg.containers, containers);
+    assertTrue(!('paused_color' in cfg), 'an unset color must not be written');
+  });
+
+  test('editor: the Colors form shows colors already in the config, and clearing one removes the key', () => {
+    const { el, events } = freshEditor({ running_color: 'green', not_running_color: 'red', containers: [] });
+    const colors = forms(el)[1];
+    assertDeepEqual(colors.data, { running_color: 'green', not_running_color: 'red' });
+    formChange(colors, { running_color: '', not_running_color: 'red' });
+    const cfg = events[events.length - 1];
+    assertTrue(!('running_color' in cfg), 'running_color should be removed');
+    assertEqual(cfg.not_running_color, 'red');
   });
 
   test('editor: clearing a card-level field removes its key', () => {
@@ -694,7 +718,7 @@
 
   test('editor: docker_overview is created on first value and removed again when emptied', () => {
     const { el, events } = freshEditor({ containers: [] });
-    const overview = forms(el)[1];
+    const overview = forms(el)[2];
     formChange(overview, { status: 'sensor.docker_status', updates_summary: true });
     assertDeepEqual(events[events.length - 1].docker_overview, { status: 'sensor.docker_status', updates_summary: true });
     formChange(overview, { status: '' });
