@@ -11,6 +11,7 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 - Works out of the box with Portainer entities or any toggle-friendly domain
 - Optional tap/hold actions on each container row to trigger more-info, URLs, or service calls
 - Responsive multi-column layout that adapts to screen size
+- Visual editor: add containers one at a time, or import them from a Portainer endpoint (with WUD Monitor update entities matched automatically)
 
 ## Installation
 
