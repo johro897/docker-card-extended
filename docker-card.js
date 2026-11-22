@@ -591,6 +591,8 @@
       if (dirty) this.render();
     }
     getCardSize() { return 4; }
+    static getConfigElement() { return document.createElement(CARD_NAME + "-editor"); }
+    static getStubConfig() { return { title: "Docker Card", containers: [] }; }
     // ── CSS ──────────────────────────────────────────────────────────────────
     _css() {
       const graphHeight = Math.max(16, parseInt(this.config?.graph_height) || 34);
@@ -2483,5 +2485,630 @@
         acc && Object.prototype.hasOwnProperty.call(acc, seg) ? acc[seg] : undefined, tree);
     }
   }
+  // ── Visual editor (#26) ────────────────────────────────────────────────────
+  // Card-wide settings on top, then one row per container ("Add container"),
+  // each row with its own <ha-form>. Options the editor does not show (colors,
+  // state lists, actions, domain overrides) are never touched: every change
+  // only sets/removes the keys of the form that changed.
+  const EDITOR_TRANSLATIONS = {
+    en: {
+      title: "Title", columns: "Maximum columns", containers_expanded: "Expand the container list on load",
+      graphs: "Show CPU/memory graphs", graph_hours: "Graph window (hours)", graph_height: "Graph height (px)",
+      graph_refresh: "Graph refresh (seconds)", name: "Name", icon: "Icon",
+      status_entity: "Status entity", control_entity: "Start/stop entity", restart_entity: "Restart entity",
+      pause_entity: "Pause entity", resume_entity: "Resume entity", cpu_entity: "CPU entity",
+      memory_entity: "Memory entity", recreate_entity: "Recreate entity", network_rx_entity: "Network RX entity",
+      network_tx_entity: "Network TX entity", image_version_entity: "Image version entity",
+      health_entity: "Health entity", update_entity: "WUD update entity",
+      status: "Docker status", container_count: "Container count", containers_running: "Running containers",
+      containers_paused: "Paused containers", containers_stopped: "Stopped containers", docker_version: "Docker version",
+      image_count: "Image count", operating_system: "Operating system", operating_system_version: "OS version",
+      container_disk_usage: "Container disk usage", image_disk_usage: "Image disk usage", volume_disk_usage: "Volume disk usage",
+      wud_last_poll: "WUD last scan", wud_scan: "WUD force-scan button", prune_images: "Prune images button",
+      prune_volumes: "Prune volumes button", prune_networks: "Prune networks button",
+      updates_summary: "Show the \"updates available\" tile",
+      section_overview: "Docker overview", section_containers: "Containers", advanced: "Advanced",
+      add_container: "Add container", remove_container: "Remove container", move_up: "Move up", move_down: "Move down",
+      container_n: "Container {n}",
+      note: "Options that are not shown here (colors, states, actions, domain overrides) stay in YAML and are kept when you edit.",
+      import_title: "Import from Portainer", import_endpoint: "Endpoint", import_exclude: "Exclude containers (comma-separated, * allowed)",
+      import_button: "Import containers", import_none: "No Portainer endpoint found in Home Assistant.",
+      import_result: "Added {added} containers, skipped {skipped} already in the list.", import_overview: "Filled {n} empty overview fields.", import_nothing: "Nothing to import.",
+    },
+    sv: {
+      title: "Titel", columns: "Max antal kolumner", containers_expanded: "Expandera containerlistan vid start",
+      graphs: "Visa CPU-/minnesgrafer", graph_hours: "Grafens tidsfönster (timmar)", graph_height: "Grafhöjd (px)",
+      graph_refresh: "Grafuppdatering (sekunder)", name: "Namn", icon: "Ikon",
+      status_entity: "Statusentitet", control_entity: "Start/stopp-entitet", restart_entity: "Omstartsentitet",
+      pause_entity: "Pausentitet", resume_entity: "Återupptagsentitet", cpu_entity: "CPU-entitet",
+      memory_entity: "Minnesentitet", recreate_entity: "Återskapa-entitet", network_rx_entity: "Nätverk RX-entitet",
+      network_tx_entity: "Nätverk TX-entitet", image_version_entity: "Image-versionsentitet",
+      health_entity: "Hälsoentitet", update_entity: "WUD-uppdateringsentitet",
+      status: "Docker-status", container_count: "Antal containrar", containers_running: "Körande containrar",
+      containers_paused: "Pausade containrar", containers_stopped: "Stoppade containrar", docker_version: "Docker-version",
+      image_count: "Antal images", operating_system: "Operativsystem", operating_system_version: "OS-version",
+      container_disk_usage: "Diskutrymme containrar", image_disk_usage: "Diskutrymme images", volume_disk_usage: "Diskutrymme volymer",
+      wud_last_poll: "Senaste WUD-skanning", wud_scan: "WUD-knapp: tvinga skanning", prune_images: "Knapp: rensa images",
+      prune_volumes: "Knapp: rensa volymer", prune_networks: "Knapp: rensa nätverk",
+      updates_summary: "Visa rutan \"uppdateringar tillgängliga\"",
+      section_overview: "Docker-översikt", section_containers: "Containrar", advanced: "Avancerat",
+      add_container: "Lägg till container", remove_container: "Ta bort container", move_up: "Flytta upp", move_down: "Flytta ner",
+      container_n: "Container {n}",
+      note: "Inställningar som inte visas här (färger, tillstånd, åtgärder, domänöverskrivningar) ligger kvar i YAML och bevaras när du redigerar.",
+      import_title: "Importera från Portainer", import_endpoint: "Endpoint", import_exclude: "Uteslut containrar (kommaseparerat, * tillåtet)",
+      import_button: "Importera containrar", import_none: "Ingen Portainer-endpoint hittades i Home Assistant.",
+      import_result: "Lade till {added} containrar, hoppade över {skipped} som redan finns i listan.", import_overview: "Fyllde i {n} tomma översiktsfält.", import_nothing: "Inget att importera.",
+    },
+    de: {
+      title: "Titel", columns: "Maximale Spaltenzahl", containers_expanded: "Containerliste beim Laden ausklappen",
+      graphs: "CPU-/Speicher-Diagramme anzeigen", graph_hours: "Diagramm-Zeitraum (Stunden)", graph_height: "Diagrammhöhe (px)",
+      graph_refresh: "Diagramm-Aktualisierung (Sekunden)", name: "Name", icon: "Symbol",
+      status_entity: "Status-Entität", control_entity: "Start/Stopp-Entität", restart_entity: "Neustart-Entität",
+      pause_entity: "Pause-Entität", resume_entity: "Fortsetzen-Entität", cpu_entity: "CPU-Entität",
+      memory_entity: "Speicher-Entität", recreate_entity: "Neu-erstellen-Entität", network_rx_entity: "Netzwerk-RX-Entität",
+      network_tx_entity: "Netzwerk-TX-Entität", image_version_entity: "Image-Versions-Entität",
+      health_entity: "Health-Entität", update_entity: "WUD-Update-Entität",
+      status: "Docker-Status", container_count: "Anzahl Container", containers_running: "Laufende Container",
+      containers_paused: "Pausierte Container", containers_stopped: "Gestoppte Container", docker_version: "Docker-Version",
+      image_count: "Anzahl Images", operating_system: "Betriebssystem", operating_system_version: "OS-Version",
+      container_disk_usage: "Speicherplatz Container", image_disk_usage: "Speicherplatz Images", volume_disk_usage: "Speicherplatz Volumes",
+      wud_last_poll: "Letzter WUD-Scan", wud_scan: "WUD-Schaltfläche: Scan erzwingen", prune_images: "Schaltfläche: Images bereinigen",
+      prune_volumes: "Schaltfläche: Volumes bereinigen", prune_networks: "Schaltfläche: Netzwerke bereinigen",
+      updates_summary: "Kachel „Updates verfügbar“ anzeigen",
+      section_overview: "Docker-Übersicht", section_containers: "Container", advanced: "Erweitert",
+      add_container: "Container hinzufügen", remove_container: "Container entfernen", move_up: "Nach oben", move_down: "Nach unten",
+      container_n: "Container {n}",
+      note: "Optionen, die hier nicht angezeigt werden (Farben, Zustände, Aktionen, Domain-Überschreibungen), bleiben in YAML erhalten.",
+      import_title: "Aus Portainer importieren", import_endpoint: "Endpoint", import_exclude: "Container ausschließen (kommagetrennt, * erlaubt)",
+      import_button: "Container importieren", import_none: "Kein Portainer-Endpoint in Home Assistant gefunden.",
+      import_result: "{added} Container hinzugefügt, {skipped} bereits vorhandene übersprungen.", import_overview: "{n} leere Übersichtsfelder ausgefüllt.", import_nothing: "Nichts zu importieren.",
+    },
+    fr: {
+      title: "Titre", columns: "Nombre maximal de colonnes", containers_expanded: "Déplier la liste des conteneurs au chargement",
+      graphs: "Afficher les graphiques CPU/mémoire", graph_hours: "Fenêtre du graphique (heures)", graph_height: "Hauteur du graphique (px)",
+      graph_refresh: "Rafraîchissement du graphique (secondes)", name: "Nom", icon: "Icône",
+      status_entity: "Entité d'état", control_entity: "Entité démarrer/arrêter", restart_entity: "Entité de redémarrage",
+      pause_entity: "Entité de pause", resume_entity: "Entité de reprise", cpu_entity: "Entité CPU",
+      memory_entity: "Entité mémoire", recreate_entity: "Entité de recréation", network_rx_entity: "Entité réseau RX",
+      network_tx_entity: "Entité réseau TX", image_version_entity: "Entité version d'image",
+      health_entity: "Entité de santé", update_entity: "Entité de mise à jour WUD",
+      status: "État de Docker", container_count: "Nombre de conteneurs", containers_running: "Conteneurs en cours",
+      containers_paused: "Conteneurs en pause", containers_stopped: "Conteneurs arrêtés", docker_version: "Version de Docker",
+      image_count: "Nombre d'images", operating_system: "Système d'exploitation", operating_system_version: "Version de l'OS",
+      container_disk_usage: "Espace disque des conteneurs", image_disk_usage: "Espace disque des images", volume_disk_usage: "Espace disque des volumes",
+      wud_last_poll: "Dernier scan WUD", wud_scan: "Bouton WUD : forcer le scan", prune_images: "Bouton : nettoyer les images",
+      prune_volumes: "Bouton : nettoyer les volumes", prune_networks: "Bouton : nettoyer les réseaux",
+      updates_summary: "Afficher la tuile « mises à jour disponibles »",
+      section_overview: "Vue d'ensemble Docker", section_containers: "Conteneurs", advanced: "Avancé",
+      add_container: "Ajouter un conteneur", remove_container: "Supprimer le conteneur", move_up: "Monter", move_down: "Descendre",
+      container_n: "Conteneur {n}",
+      note: "Les options non affichées ici (couleurs, états, actions, remplacements de domaine) restent en YAML et sont conservées.",
+      import_title: "Importer depuis Portainer", import_endpoint: "Endpoint", import_exclude: "Exclure des conteneurs (séparés par des virgules, * autorisé)",
+      import_button: "Importer les conteneurs", import_none: "Aucun endpoint Portainer trouvé dans Home Assistant.",
+      import_result: "{added} conteneurs ajoutés, {skipped} déjà présents ignorés.", import_overview: "{n} champs de vue d'ensemble vides remplis.", import_nothing: "Rien à importer.",
+    },
+  };
+  const editorT = (hass, key, repl) => {
+    const raw = (hass?.locale?.language || hass?.language || DEFAULT_LANGUAGE).toLowerCase().split("-")[0];
+    const dict = EDITOR_TRANSLATIONS[raw] || EDITOR_TRANSLATIONS[DEFAULT_LANGUAGE];
+    const s = dict[key] ?? EDITOR_TRANSLATIONS[DEFAULT_LANGUAGE][key] ?? key;
+    return repl ? s.replace(/\{(\w+)\}/g, (m, k) => (k in repl ? repl[k] : m)) : s;
+  };
+  // ── Discovery from the HA registries (#21) ─────────────────────────────────
+  // Pure functions over hass.devices / hass.entities / hass.states, used only
+  // by the editor's "Import from Portainer" action: the card itself still
+  // discovers nothing at runtime. Portainer entities are recognised by their
+  // stable translation_key (never by name or language); WUD Monitor entities
+  // have no translation_key, so they are matched by container name.
+  const PORTAINER_MAKER = "Portainer";
+  const WUD_MAKER = "What's Up Docker";
+  const PORTAINER_CONTAINER_ROLES = {
+    "sensor.container_state": "status_entity",
+    "switch.container": "control_entity",
+    "button.restart_container": "restart_entity",
+    "button.pause_container": "pause_entity",
+    "button.resume_container": "resume_entity",
+    "button.recreate_container": "recreate_entity",
+    "sensor.cpu_usage_total": "cpu_entity",
+    "sensor.memory_usage_percentage": "memory_entity",
+    "sensor.memory_usage": "memory_fallback",
+    "sensor.image_version": "image_version_entity",
+    "sensor.container_health_state": "health_entity",
+  };
+  const PORTAINER_CONTAINER_ORDER = ["status_entity", "control_entity", "restart_entity", "pause_entity", "resume_entity",
+    "recreate_entity", "cpu_entity", "memory_entity", "image_version_entity", "health_entity"];
+  const PORTAINER_ENDPOINT_ROLES = {
+    "binary_sensor.status": "status",
+    "sensor.containers_count": "container_count",
+    "sensor.containers_running": "containers_running",
+    "sensor.containers_paused": "containers_paused",
+    "sensor.containers_stopped": "containers_stopped",
+    "sensor.docker_version": "docker_version",
+    "sensor.images_count": "image_count",
+    "sensor.operating_system": "operating_system",
+    "sensor.operating_system_version": "operating_system_version",
+    "sensor.container_disk_usage_total_size": "container_disk_usage",
+    "sensor.image_disk_usage_total_size": "image_disk_usage",
+    "sensor.volume_disk_usage_total_size": "volume_disk_usage",
+    "button.images_prune": "prune_images",
+    "button.volumes_prune": "prune_volumes",
+    "button.networks_prune": "prune_networks",
+  };
+  const deviceLabel = (d) => d.name_by_user || d.name || d.id;
+  const byLabel = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" });
+  const globToRegExp = (glob) =>
+    new RegExp("^" + glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
+  const parseExclude = (input) =>
+    (Array.isArray(input) ? input : String(input || "").split(","))
+      .map((s) => String(s).trim()).filter(Boolean).map(globToRegExp);
+  function portainerEndpoints(hass) {
+    return Object.values(hass?.devices || {})
+      .filter((d) => d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint" && !d.disabled_by)
+      .map((d) => ({ id: d.id, name: deviceLabel(d) }))
+      .sort(byLabel);
+  }
+  /** A container's endpoint device: follow via_device_id (container → stack → endpoint, or container → endpoint). */
+  function endpointOf(hass, device) {
+    let d = device;
+    for (let i = 0; i < 4 && d; i++) {
+      if (d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint") return d;
+      d = d.via_device_id ? hass.devices[d.via_device_id] : null;
+    }
+    return null;
+  }
+  function entitiesByDevice(hass) {
+    const out = {};
+    Object.keys(hass.entities || {}).forEach((id) => {
+      const e = hass.entities[id];
+      if (e && e.device_id) (out[e.device_id] ||= []).push({ id, e });
+    });
+    return out;
+  }
+  /** Map of {role → entity_id} for one device, matching "<domain>.<translation_key>" against `roles`. */
+  function pickByTranslationKey(byDevice, deviceId, roles, platform) {
+    const out = {};
+    (byDevice[deviceId] || []).forEach(({ id, e }) => {
+      if (e.platform !== platform || !e.translation_key) return;
+      const role = roles[id.split(".")[0] + "." + e.translation_key];
+      if (role && !out[role]) out[role] = id;
+    });
+    return out;
+  }
+  const entityFriendlyName = (hass, id, e) => hass.states?.[id]?.attributes?.friendly_name || e?.name || "";
+  /** WUD "<container> Update Available" sensors, keyed by lower-cased container name. */
+  function wudUpdateSensors(hass) {
+    const map = new Map();
+    Object.keys(hass.entities || {}).forEach((id) => {
+      const e = hass.entities[id];
+      if (!e || e.platform !== "wud_monitor" || !id.startsWith("sensor.")) return;
+      const state = hass.states?.[id];
+      if (state && state.state === "unavailable") return;
+      let name = state?.attributes?.container_name;
+      if (!name) {
+        const fn = entityFriendlyName(hass, id, e);
+        if (!/\sUpdate Available$/i.test(fn)) return;
+        // "<name> Update Available", or "<name> (<watcher>) Update Available" on a non-default watcher
+        name = fn.replace(/\sUpdate Available$/i, "").replace(/\s\([^()]*\)$/, "");
+      }
+      const key = String(name).toLowerCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(id);
+    });
+    return map;
+  }
+  function wudOverview(hass, byDevice) {
+    const controllers = Object.values(hass.devices || {})
+      .filter((d) => d.manufacturer === WUD_MAKER && d.model === "Controller" && !d.disabled_by);
+    if (controllers.length !== 1) return {};
+    const out = {};
+    (byDevice[controllers[0].id] || []).forEach(({ id, e }) => {
+      if (e.platform !== "wud_monitor") return;
+      const fn = entityFriendlyName(hass, id, e);
+      if (id.startsWith("sensor.") && /\sLast Poll$/i.test(fn) && !out.wud_last_poll) out.wud_last_poll = id;
+      if (id.startsWith("button.") && /\sForce Scan All$/i.test(fn) && !out.wud_scan) out.wud_scan = id;
+    });
+    return out;
+  }
+  /**
+   * Containers (and docker_overview entities) found for one Portainer endpoint.
+   * `endpoint` is a device id or name; `exclude` is a comma-separated list or an
+   * array of globs ("*-db"). Containers whose status sensor is `unavailable`
+   * (gone from Portainer) are skipped unless `includeUnavailable`.
+   */
+  function discoverFromRegistry(hass, { endpoint, exclude, includeUnavailable } = {}) {
+    const result = { containers: [], overview: {}, excluded: 0, unavailable: 0 };
+    if (!hass || !hass.devices || !hass.entities) return result;
+    const byDevice = entitiesByDevice(hass);
+    const excludes = parseExclude(exclude);
+    const wud = wudUpdateSensors(hass);
+    const endpointDevice = endpoint
+      ? Object.values(hass.devices).find((d) => d.manufacturer === PORTAINER_MAKER && d.model === "Endpoint"
+          && (d.id === endpoint || deviceLabel(d) === endpoint))
+      : null;
+    if (endpoint && !endpointDevice) return result;
+    Object.values(hass.devices).forEach((d) => {
+      if (d.manufacturer !== PORTAINER_MAKER || d.model !== "Container" || d.disabled_by) return;
+      if (endpointDevice) {
+        const ep = endpointOf(hass, d);
+        if (!ep || ep.id !== endpointDevice.id) return;
+      }
+      const name = deviceLabel(d);
+      if (excludes.some((r) => r.test(name) || r.test(d.name || ""))) { result.excluded++; return; }
+      const roles = pickByTranslationKey(byDevice, d.id, PORTAINER_CONTAINER_ROLES, "portainer");
+      if (!roles.memory_entity && roles.memory_fallback) roles.memory_entity = roles.memory_fallback;
+      if (!includeUnavailable && roles.status_entity && hass.states?.[roles.status_entity]?.state === "unavailable") {
+        result.unavailable++;
+        return;
+      }
+      const entry = { name };
+      PORTAINER_CONTAINER_ORDER.forEach((k) => { if (roles[k]) entry[k] = roles[k]; });
+      // Only an unambiguous WUD match is used (the same name on two hosts is left blank).
+      const matches = wud.get(String(d.name || name).toLowerCase());
+      if (matches && matches.length === 1) entry.update_entity = matches[0];
+      result.containers.push(entry);
+    });
+    result.containers.sort(byLabel);
+    if (endpointDevice) result.overview = { ...pickByTranslationKey(byDevice, endpointDevice.id, PORTAINER_ENDPOINT_ROLES, "portainer") };
+    Object.assign(result.overview, wudOverview(hass, byDevice));
+    return result;
+  }
+  const edEntity = (name, domain) => ({ name, selector: { entity: domain ? { domain } : {} } });
+  const edNumber = (name, min, max) => ({ name, selector: { number: { min, max, step: 1, mode: "box" } } });
+  const EDITOR_CARD_SCHEMA = [
+    { name: "title", selector: { text: {} } },
+    edNumber("columns", 1, 6),
+    { name: "containers_expanded", selector: { boolean: {} } },
+    { name: "graphs", selector: { boolean: {} } },
+    edNumber("graph_hours", 1, 168),
+    edNumber("graph_height", 16, 200),
+    edNumber("graph_refresh", 30, 3600),
+  ];
+  const EDITOR_OVERVIEW_SCHEMA = [
+    edEntity("status"),
+    edEntity("container_count", "sensor"), edEntity("containers_running", "sensor"),
+    edEntity("containers_paused", "sensor"), edEntity("containers_stopped", "sensor"),
+    edEntity("docker_version", "sensor"), edEntity("image_count", "sensor"),
+    edEntity("operating_system", "sensor"), edEntity("operating_system_version", "sensor"),
+    edEntity("container_disk_usage", "sensor"), edEntity("image_disk_usage", "sensor"), edEntity("volume_disk_usage", "sensor"),
+    edEntity("wud_last_poll", "sensor"), edEntity("wud_scan", "button"),
+    edEntity("prune_images", "button"), edEntity("prune_volumes", "button"), edEntity("prune_networks", "button"),
+    { name: "updates_summary", selector: { boolean: {} } },
+  ];
+  const EDITOR_CONTAINER_SCHEMA = [
+    { name: "name", selector: { text: {} } },
+    { name: "icon", selector: { icon: {} } },
+    edEntity("status_entity"), edEntity("control_entity"), edEntity("restart_entity"),
+    edEntity("pause_entity", ["button", "script", "automation"]),
+    edEntity("resume_entity", ["button", "script", "automation"]),
+    edEntity("cpu_entity", "sensor"), edEntity("memory_entity", "sensor"),
+  ];
+  const EDITOR_CONTAINER_ADVANCED_SCHEMA = [
+    edEntity("recreate_entity", ["button", "script", "automation"]),
+    edEntity("network_rx_entity", "sensor"), edEntity("network_tx_entity", "sensor"),
+    edEntity("image_version_entity", "sensor"), edEntity("health_entity", "sensor"), edEntity("update_entity", "sensor"),
+    edNumber("graph_hours", 1, 168), edNumber("graph_height", 16, 200), edNumber("graph_refresh", 30, 3600),
+  ];
+  const EDITOR_CSS = `
+    .dce { display: flex; flex-direction: column; gap: 12px; }
+    .dce-block { border: 1px solid var(--divider-color); border-radius: 12px; background: var(--card-background-color); }
+    .dce-sum { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 12px; cursor: pointer; font-weight: 500; color: var(--primary-text-color); }
+    .dce-sum::before { content: "▸"; color: var(--secondary-text-color); }
+    details[open] > .dce-sum::before { content: "▾"; }
+    .dce-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dce-actions { display: flex; gap: 4px; }
+    .dce-btn { min-width: 44px; min-height: 44px; border: none; border-radius: 8px; background: transparent; color: var(--primary-text-color); font-size: 1rem; cursor: pointer; }
+    .dce-btn:hover:not([disabled]) { background: var(--secondary-background-color); }
+    .dce-btn[disabled] { opacity: 0.35; cursor: default; }
+    .dce-body { padding: 0 12px 12px; }
+    .dce-sub { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--secondary-text-color); }
+    .dce-heading { font-weight: 600; color: var(--primary-text-color); }
+    .dce-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--secondary-text-color); font-size: 0.85rem; }
+    .dce select, .dce input[type="text"] { min-height: 44px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
+    .dce-wide { display: block; width: 100%; margin: 8px 0; }
+    .dce-wide, .dce-add { min-height: 44px; border: 1px dashed var(--primary-color); border-radius: 12px; background: transparent; color: var(--primary-color); font-size: 0.95rem; cursor: pointer; }
+    .dce-note { margin: 0; color: var(--secondary-text-color); font-size: 0.85rem; }
+    .dce summary:focus-visible, .dce button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+  `;
+  /** Set/remove exactly the schema's keys on a copy of `base`; everything else is left alone. */
+  const editorApply = (base, schema, value) => {
+    const next = { ...base };
+    schema.forEach(({ name }) => {
+      const v = value ? value[name] : undefined;
+      if (v === undefined || v === null || v === "") delete next[name];
+      else next[name] = v;
+    });
+    return next;
+  };
+  const editorPick = (obj, schema) => {
+    const out = {};
+    schema.forEach(({ name }) => { if (obj && obj[name] !== undefined) out[name] = obj[name]; });
+    return out;
+  };
+  class DockerCardEditor extends HTMLElement {
+    constructor() {
+      super();
+      this._config = {};
+      this._hass = undefined;
+      this._built = false;
+      this._open = new Set();
+      this._rows = [];
+    }
+    setConfig(config) {
+      this._config = { ...(config || {}) };
+      if (this._built) this._sync(); else this._ensureBuilt();
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (!this._built) { this._ensureBuilt(); return; }
+      this._applyHass();
+    }
+    /** Same container normalisation the card does, without writing anything back. */
+    _containers() {
+      const input = this._config.containers ?? this._config.container;
+      if (Array.isArray(input)) return input.filter((c) => c && typeof c === "object");
+      if (input && typeof input === "object") return Object.values(input).filter((c) => c && typeof c === "object");
+      return [];
+    }
+    _ensureBuilt() {
+      if (this._built || !this._hass) return;
+      this.innerHTML = `<style>${EDITOR_CSS}</style>
+        <div class="dce">
+          <div class="dce-card"></div>
+          <details class="dce-block dce-overview"><summary class="dce-sum"></summary><div class="dce-body"></div></details>
+          <div class="dce-heading"></div>
+          <details class="dce-block dce-import">
+            <summary class="dce-sum"></summary>
+            <div class="dce-body">
+              <label class="dce-field"><span class="dce-lbl-endpoint"></span><select class="dce-endpoint"></select></label>
+              <label class="dce-field"><span class="dce-lbl-exclude"></span><input type="text" class="dce-exclude" placeholder="*-db, watchtower"></label>
+              <button type="button" class="dce-wide dce-import-btn"></button>
+              <p class="dce-note dce-import-msg" role="status"></p>
+            </div>
+          </details>
+          <div class="dce-list"></div>
+          <button type="button" class="dce-add"></button>
+          <p class="dce-note"></p>
+        </div>`;
+      this._cardForm = this._makeForm(EDITOR_CARD_SCHEMA, (v) => this._onCardChange(v));
+      this.querySelector(".dce-card").appendChild(this._cardForm);
+      this._overviewForm = this._makeForm(EDITOR_OVERVIEW_SCHEMA, (v) => this._onOverviewChange(v));
+      this.querySelector(".dce-overview .dce-body").appendChild(this._overviewForm);
+      this.querySelector(".dce-add").addEventListener("click", () => this._addContainer());
+      this.querySelector(".dce-import-btn").addEventListener("click", () => this._import());
+      const list = this.querySelector(".dce-list");
+      list.addEventListener("click", (e) => this._onListClick(e));
+      // "toggle" does not bubble; capture it to remember which rows are open.
+      list.addEventListener("toggle", (e) => {
+        const row = e.target.closest ? e.target.closest(".dce-row") : null;
+        if (!row || e.target !== row) return;
+        const i = Number(row.dataset.i);
+        if (row.open) this._open.add(i); else this._open.delete(i);
+      }, true);
+      this._built = true;
+      this._labels();
+      this._refreshEndpoints();
+      this._renderRows();
+      this._pushData();
+    }
+    _makeForm(schema, onChange) {
+      const form = document.createElement("ha-form");
+      form.schema = schema;
+      form.computeLabel = (s) => editorT(this._hass, s.name);
+      form.addEventListener("value-changed", (ev) => {
+        ev.stopPropagation();
+        onChange(ev.detail.value);
+      });
+      return form;
+    }
+    _setData(form, data) {
+      if (JSON.stringify(form.data) === JSON.stringify(data)) return;
+      form.data = data;
+    }
+    _labels() {
+      const t = (k) => editorT(this._hass, k);
+      this.querySelector(".dce-overview > summary").textContent = t("section_overview");
+      this.querySelector(".dce-heading").textContent = t("section_containers");
+      this.querySelector(".dce-add").textContent = "+ " + t("add_container");
+      this.querySelector(".dce-note:not(.dce-import-msg)").textContent = t("note");
+      this.querySelector(".dce-import > summary").textContent = t("import_title");
+      this.querySelector(".dce-lbl-endpoint").textContent = t("import_endpoint");
+      this.querySelector(".dce-lbl-exclude").textContent = t("import_exclude");
+      this.querySelector(".dce-import-btn").textContent = t("import_button");
+    }
+    /** (Re)fill the endpoint list from the device registry, keeping the current choice when it still exists. */
+    _refreshEndpoints() {
+      const select = this.querySelector(".dce-endpoint");
+      const endpoints = portainerEndpoints(this._hass);
+      const previous = select.value;
+      select.textContent = "";
+      endpoints.forEach((ep) => {
+        const o = document.createElement("option");
+        o.value = ep.id;
+        o.textContent = ep.name;
+        select.appendChild(o);
+      });
+      if (endpoints.some((ep) => ep.id === previous)) select.value = previous;
+      this._lastDevices = this._hass?.devices;
+      this.querySelector(".dce-import-btn").disabled = endpoints.length === 0;
+      if (!endpoints.length) this.querySelector(".dce-import-msg").textContent = editorT(this._hass, "import_none");
+      else if (this.querySelector(".dce-import-msg").textContent === editorT(this._hass, "import_none")) this.querySelector(".dce-import-msg").textContent = "";
+    }
+    _discover(options) { return discoverFromRegistry(this._hass, options); }
+    /** Adds the endpoint's containers that are not in the list yet and fills empty docker_overview fields. Never overwrites. */
+    _import() {
+      const found = this._discover({
+        endpoint: this.querySelector(".dce-endpoint").value,
+        exclude: this.querySelector(".dce-exclude").value,
+      });
+      const existing = this._containers();
+      const known = (c) => existing.some((e) =>
+        (c.status_entity && e.status_entity === c.status_entity) || String(e.name || "").toLowerCase() === c.name.toLowerCase());
+      const fresh = found.containers.filter((c) => !known(c));
+      if (fresh.length) this._setContainers(existing.concat(fresh));
+      const overview = { ...(this._config.docker_overview || {}) };
+      let filled = 0;
+      Object.keys(found.overview).forEach((k) => { if (!overview[k]) { overview[k] = found.overview[k]; filled++; } });
+      if (filled) this._config = { ...this._config, docker_overview: overview };
+      const msg = this.querySelector(".dce-import-msg");
+      if (!fresh.length && !filled && !found.containers.length) {
+        msg.textContent = editorT(this._hass, "import_nothing");
+        return;
+      }
+      msg.textContent = editorT(this._hass, "import_result", { added: fresh.length, skipped: found.containers.length - fresh.length })
+        + (filled ? " " + editorT(this._hass, "import_overview", { n: filled }) : "");
+      if (fresh.length || filled) {
+        this._renderRows();
+        this._pushData();
+        this._emit();
+      }
+    }
+    _applyHass() {
+      if (this._hass?.devices !== this._lastDevices) this._refreshEndpoints();
+      const forms = [this._cardForm, this._overviewForm];
+      this._rows.forEach((r) => forms.push(r.main, r.adv));
+      forms.forEach((f) => { if (f.hass !== this._hass) f.hass = this._hass; });
+      this._rows.forEach((r, i) => this._setRowName(r, this._containers()[i], i));
+    }
+    _pushData() {
+      this._cardForm.hass = this._hass;
+      this._overviewForm.hass = this._hass;
+      this._setData(this._cardForm, editorPick(this._config, EDITOR_CARD_SCHEMA));
+      this._setData(this._overviewForm, { ...(this._config.docker_overview || {}) });
+    }
+    _sync() {
+      this._pushData();
+      if (this._containers().length !== this._rows.length) this._renderRows(); else this._pushRowData();
+    }
+    _rowName(c, i) {
+      if (c.name) return String(c.name);
+      const id = c.status_entity || c.control_entity || c.switch_entity;
+      return (id && this._hass?.states?.[id]?.attributes?.friendly_name) || id || editorT(this._hass, "container_n", { n: i + 1 });
+    }
+    _setRowName(row, c, i) {
+      const text = this._rowName(c || {}, i);
+      if (row.name.textContent !== text) row.name.textContent = text;
+    }
+    _renderRows() {
+      const list = this.querySelector(".dce-list");
+      list.textContent = "";
+      this._rows = [];
+      const containers = this._containers();
+      containers.forEach((c, i) => list.appendChild(this._buildRow(i, containers.length)));
+      this._pushRowData();
+    }
+    _buildRow(i, count) {
+      const t = (k) => editorT(this._hass, k);
+      const details = document.createElement("details");
+      details.className = "dce-block dce-row";
+      details.dataset.i = String(i);
+      details.open = this._open.has(i);
+      const sum = document.createElement("summary");
+      sum.className = "dce-sum";
+      const name = document.createElement("span");
+      name.className = "dce-name";
+      const actions = document.createElement("span");
+      actions.className = "dce-actions";
+      [["up", "▲", "move_up", i === 0], ["down", "▼", "move_down", i === count - 1], ["remove", "✕", "remove_container", false]]
+        .forEach(([act, glyph, key, disabled]) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "dce-btn";
+          b.dataset.act = act;
+          b.textContent = glyph;
+          b.title = t(key);
+          b.setAttribute("aria-label", t(key));
+          b.disabled = disabled;
+          actions.appendChild(b);
+        });
+      sum.append(name, actions);
+      const body = document.createElement("div");
+      body.className = "dce-body";
+      const main = this._makeForm(EDITOR_CONTAINER_SCHEMA, (v) => this._onContainerChange(i, EDITOR_CONTAINER_SCHEMA, v));
+      const advanced = document.createElement("details");
+      const advSum = document.createElement("summary");
+      advSum.className = "dce-sub";
+      advSum.textContent = t("advanced");
+      const adv = this._makeForm(EDITOR_CONTAINER_ADVANCED_SCHEMA, (v) => this._onContainerChange(i, EDITOR_CONTAINER_ADVANCED_SCHEMA, v));
+      advanced.append(advSum, adv);
+      body.append(main, advanced);
+      details.append(sum, body);
+      this._rows.push({ main, adv, name });
+      return details;
+    }
+    _pushRowData() {
+      const containers = this._containers();
+      this._rows.forEach((row, i) => {
+        const c = containers[i] || {};
+        row.main.hass = this._hass;
+        row.adv.hass = this._hass;
+        this._setData(row.main, editorPick(c, EDITOR_CONTAINER_SCHEMA));
+        this._setData(row.adv, editorPick(c, EDITOR_CONTAINER_ADVANCED_SCHEMA));
+        this._setRowName(row, c, i);
+      });
+    }
+    // ── Change handling ──────────────────────────────────────────────────────
+    _emit() {
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+    }
+    _onCardChange(value) {
+      this._config = editorApply(this._config, EDITOR_CARD_SCHEMA, value);
+      this._emit();
+    }
+    _onOverviewChange(value) {
+      const next = editorApply(this._config.docker_overview || {}, EDITOR_OVERVIEW_SCHEMA, value);
+      const config = { ...this._config };
+      if (Object.keys(next).length) config.docker_overview = next; else delete config.docker_overview;
+      this._config = config;
+      this._emit();
+    }
+    _onContainerChange(i, schema, value) {
+      const containers = this._containers().slice();
+      if (!containers[i]) return;
+      containers[i] = editorApply(containers[i], schema, value);
+      this._setContainers(containers);
+      this._emit();
+    }
+    /** Always writes the canonical `containers` array (the legacy singular key is dropped). */
+    _setContainers(containers) {
+      const config = { ...this._config };
+      delete config.container;
+      config.containers = containers;
+      this._config = config;
+    }
+    _addContainer() {
+      const containers = this._containers().concat([{}]);
+      this._open.add(containers.length - 1);
+      this._setContainers(containers);
+      this._renderRows();
+      this._emit();
+    }
+    _onListClick(e) {
+      const btn = e.target.closest ? e.target.closest("button[data-act]") : null;
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const row = btn.closest(".dce-row");
+      const i = Number(row.dataset.i);
+      const containers = this._containers().slice();
+      const act = btn.dataset.act;
+      if (act === "remove") {
+        containers.splice(i, 1);
+        this._open = new Set([...this._open].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k)));
+      } else {
+        const j = act === "up" ? i - 1 : i + 1;
+        if (j < 0 || j >= containers.length) return;
+        [containers[i], containers[j]] = [containers[j], containers[i]];
+        const a = this._open.has(i);
+        const b = this._open.has(j);
+        this._open.delete(i); this._open.delete(j);
+        if (a) this._open.add(j);
+        if (b) this._open.add(i);
+      }
+      this._setContainers(containers);
+      this._renderRows();
+      this._emit();
+    }
+  }
   customElements.define(CARD_NAME, DockerCard);
+  customElements.define(CARD_NAME + "-editor", DockerCardEditor);
 })();

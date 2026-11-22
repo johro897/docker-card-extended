@@ -577,6 +577,339 @@
     assertEqual(calls[0].data.entity_id, 'button.wud_scan_all');
   });
 
+  // ---------------------------------------------------------------------
+  // Visual editor (#26). <ha-form> does not exist outside a real HA
+  // frontend, so it is an inert element here: the tests drive the editor by
+  // dispatching "value-changed" on those elements, exactly what ha-form does.
+  // What this CANNOT cover is how ha-form/ha-entity-picker actually render.
+  // ---------------------------------------------------------------------
+  function freshEditor(config, { language = 'en', states = {} } = {}) {
+    const el = document.createElement('docker-card-editor');
+    host.appendChild(el);
+    const events = [];
+    el.addEventListener('config-changed', (e) => events.push(e.detail.config));
+    el.setConfig(config);
+    el.hass = fakeHass({ language, states }).hass;
+    return { el, events };
+  }
+  const forms = (el) => Array.from(el.querySelectorAll('ha-form'));
+  const rowEls = (el) => Array.from(el.querySelectorAll('.dce-row'));
+  const rowForms = (row) => row.querySelectorAll('ha-form');
+  function formChange(form, value) {
+    form.dispatchEvent(new CustomEvent('value-changed', { detail: { value }, bubbles: true }));
+  }
+
+  test('editor: card exposes getConfigElement/getStubConfig and a stub config is accepted by setConfig', () => {
+    const Card = customElements.get('docker-card');
+    assertEqual(Card.getConfigElement().tagName, 'DOCKER-CARD-EDITOR');
+    const stub = Card.getStubConfig();
+    assertTrue(Array.isArray(stub.containers) && stub.containers.length === 0, 'stub should have an empty containers list');
+    freshCard().setConfig(stub);
+  });
+
+  test('editor: builds the card form, the overview form and one row (two forms) per container', () => {
+    const { el } = freshEditor({ title: 'Docker', containers: [{ name: 'plex' }, { name: 'sonarr' }] });
+    assertEqual(forms(el).length, 2 + 2 * 2);
+    const names = rowEls(el).map((r) => r.querySelector('.dce-name').textContent);
+    assertDeepEqual(names, ['plex', 'sonarr']);
+  });
+
+  test('editor: a row without a name falls back to the status entity friendly name, then to "Container N"', () => {
+    const states = { 'sensor.plex': { state: 'running', attributes: { friendly_name: 'Plex Media' } } };
+    const { el } = freshEditor({ containers: [{ status_entity: 'sensor.plex' }, {}] }, { states });
+    const names = rowEls(el).map((r) => r.querySelector('.dce-name').textContent);
+    assertDeepEqual(names, ['Plex Media', 'Container 2']);
+  });
+
+  test('editor: a card-level change keeps every other key (colors, containers) untouched', () => {
+    const containers = [{ name: 'plex', running_color: 'red', tap_action: { action: 'none' } }];
+    const { el, events } = freshEditor({ title: 'A', not_running_color: 'blue', containers });
+    formChange(forms(el)[0], { title: 'B', columns: 2 });
+    const cfg = events[events.length - 1];
+    assertEqual(cfg.title, 'B');
+    assertEqual(cfg.columns, 2);
+    assertEqual(cfg.not_running_color, 'blue');
+    assertDeepEqual(cfg.containers, containers);
+  });
+
+  test('editor: clearing a card-level field removes its key', () => {
+    const { el, events } = freshEditor({ title: 'A', columns: 3, containers: [] });
+    formChange(forms(el)[0], { title: '', columns: 3 });
+    const cfg = events[events.length - 1];
+    assertTrue(!('title' in cfg), 'title should be removed');
+    assertEqual(cfg.columns, 3);
+  });
+
+  test('editor: a container change sets the entity and keeps unknown per-container keys', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex', running_color: 'red', hold_delay: 800 }] });
+    const [main] = rowForms(rowEls(el)[0]);
+    formChange(main, { name: 'plex', status_entity: 'sensor.plex_state' });
+    const c = events[events.length - 1].containers[0];
+    assertEqual(c.status_entity, 'sensor.plex_state');
+    assertEqual(c.running_color, 'red');
+    assertEqual(c.hold_delay, 800);
+  });
+
+  test('editor: the advanced form edits the same container as the main form', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex', status_entity: 'sensor.a' }] });
+    const [, adv] = rowForms(rowEls(el)[0]);
+    formChange(adv, { health_entity: 'sensor.plex_health', graph_hours: 6 });
+    const c = events[events.length - 1].containers[0];
+    assertEqual(c.health_entity, 'sensor.plex_health');
+    assertEqual(c.graph_hours, 6);
+    assertEqual(c.status_entity, 'sensor.a');
+  });
+
+  test('editor: "Add container" appends an empty container, opens its row and emits', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'plex' }] });
+    el.querySelector('.dce-add').click();
+    const cfg = events[events.length - 1];
+    assertEqual(cfg.containers.length, 2);
+    assertDeepEqual(cfg.containers[1], {});
+    assertEqual(rowEls(el).length, 2);
+    assertTrue(rowEls(el)[1].open, 'the new row should be open');
+  });
+
+  test('editor: remove deletes the right container and move up/down reorders; end buttons are disabled', () => {
+    const { el, events } = freshEditor({ containers: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] });
+    assertTrue(rowEls(el)[0].querySelector('[data-act="up"]').disabled, 'first row cannot move up');
+    assertTrue(rowEls(el)[2].querySelector('[data-act="down"]').disabled, 'last row cannot move down');
+    rowEls(el)[2].querySelector('[data-act="up"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['a', 'c', 'b']);
+    rowEls(el)[0].querySelector('[data-act="down"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['c', 'a', 'b']);
+    rowEls(el)[1].querySelector('[data-act="remove"]').click();
+    assertDeepEqual(events[events.length - 1].containers.map((c) => c.name), ['c', 'b']);
+    assertEqual(rowEls(el).length, 2);
+  });
+
+  test('editor: the legacy singular "container" key is written back as "containers"', () => {
+    const { el, events } = freshEditor({ container: [{ name: 'plex' }] });
+    assertEqual(rowEls(el).length, 1);
+    formChange(rowForms(rowEls(el)[0])[0], { name: 'plex2' });
+    const cfg = events[events.length - 1];
+    assertTrue(!('container' in cfg), 'singular key should be dropped');
+    assertEqual(cfg.containers[0].name, 'plex2');
+  });
+
+  test('editor: docker_overview is created on first value and removed again when emptied', () => {
+    const { el, events } = freshEditor({ containers: [] });
+    const overview = forms(el)[1];
+    formChange(overview, { status: 'sensor.docker_status', updates_summary: true });
+    assertDeepEqual(events[events.length - 1].docker_overview, { status: 'sensor.docker_status', updates_summary: true });
+    formChange(overview, { status: '' });
+    assertTrue(!('docker_overview' in events[events.length - 1]) || events[events.length - 1].docker_overview.updates_summary === true,
+      'only the cleared key may go');
+    formChange(overview, {});
+    assertTrue(!('docker_overview' in events[events.length - 1]), 'an emptied docker_overview should be removed');
+  });
+
+  test('editor: a hass update or a same-size setConfig does not rebuild the rows (no focus loss)', () => {
+    const { el } = freshEditor({ containers: [{ name: 'a' }, { name: 'b' }] });
+    const before = rowEls(el);
+    el.hass = fakeHass({}).hass;
+    el.setConfig({ containers: [{ name: 'a', status_entity: 'sensor.x' }, { name: 'b' }] });
+    const after = rowEls(el);
+    assertTrue(before[0] === after[0] && before[1] === after[1], 'rows must be the same DOM nodes');
+  });
+
+  test('editor: setConfig with a different number of containers rebuilds the rows', () => {
+    const { el } = freshEditor({ containers: [{ name: 'a' }] });
+    el.setConfig({ containers: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] });
+    assertEqual(rowEls(el).length, 3);
+  });
+
+  test('editor: labels follow the HA language and fall back to English', () => {
+    const sv = freshEditor({ containers: [] }, { language: 'sv' });
+    assertEqual(forms(sv.el)[0].computeLabel({ name: 'title' }), 'Titel');
+    assertEqual(sv.el.querySelector('.dce-add').textContent, '+ Lägg till container');
+    const xx = freshEditor({ containers: [] }, { language: 'xx' });
+    assertEqual(forms(xx.el)[0].computeLabel({ name: 'title' }), 'Title');
+  });
+
+  test('editor: every schema field has a label in every language', () => {
+    const { el } = freshEditor({ containers: [{}] });
+    const names = [];
+    forms(el).forEach((f) => f.schema.forEach((s) => names.push(s.name)));
+    ['en', 'sv', 'de', 'fr'].forEach((lang) => {
+      const e = freshEditor({ containers: [] }, { language: lang });
+      const label = forms(e.el)[0].computeLabel;
+      names.forEach((n) => assertTrue(label({ name: n }) !== n, `${lang}: no label for ${n}`));
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Import from Portainer / WUD Monitor (#21). A fake registry shaped like
+  // hass.devices / hass.entities / hass.states (fields verified against HA
+  // core's Portainer integration and the frontend's registry types). Whether
+  // a real instance matches this shape is what the beta test is for.
+  // ---------------------------------------------------------------------
+  function registryHass({ language = 'en' } = {}) {
+    const devices = {};
+    const entities = {};
+    const states = {};
+    const dev = (id, model, name, via, extra = {}) => { devices[id] = { id, manufacturer: 'Portainer', model, name, via_device_id: via || null, name_by_user: null, disabled_by: null, ...extra }; };
+    const ent = (entity_id, device_id, platform, translation_key, state = 'running', attrs = {}) => {
+      entities[entity_id] = { entity_id, device_id, platform, translation_key };
+      states[entity_id] = { state, attributes: attrs };
+    };
+    dev('ep1', 'Endpoint', 'Local');
+    dev('ep2', 'Endpoint', 'Remote');
+    dev('st1', 'Stack', 'media', 'ep1');
+    dev('c_plex', 'Container', 'plex', 'st1');
+    dev('c_sonarr', 'Container', 'sonarr', 'ep1');
+    dev('c_db', 'Container', 'plex-db', 'st1');
+    dev('c_ghost', 'Container', 'ghost', 'ep1');
+    dev('c_remote', 'Container', 'remote-app', 'ep2');
+    const full = (id, slug, state = 'running') => {
+      ent(`sensor.${slug}_state`, id, 'portainer', 'container_state', state);
+      ent(`switch.${slug}`, id, 'portainer', 'container', 'on');
+      ent(`button.${slug}_restart`, id, 'portainer', 'restart_container', 'unknown');
+      ent(`button.${slug}_pause`, id, 'portainer', 'pause_container', 'unknown');
+      ent(`sensor.${slug}_cpu`, id, 'portainer', 'cpu_usage_total', '3');
+      ent(`sensor.${slug}_memory_pct`, id, 'portainer', 'memory_usage_percentage', '10');
+    };
+    full('c_plex', 'plex'); full('c_sonarr', 'sonarr'); full('c_db', 'plex_db');
+    full('c_ghost', 'ghost', 'unavailable'); full('c_remote', 'remote_app');
+    // Endpoint-level entities (Local)
+    ent('binary_sensor.local_status', 'ep1', 'portainer', 'status', 'on');
+    ent('sensor.local_images', 'ep1', 'portainer', 'images_count', '12');
+    ent('sensor.local_docker', 'ep1', 'portainer', 'docker_version', '27');
+    ent('button.local_prune_images', 'ep1', 'portainer', 'images_prune', 'unknown');
+    // A container-level "status" binary sensor must not be mistaken for the endpoint one
+    ent('binary_sensor.plex_status', 'c_plex', 'portainer', 'status', 'on');
+    // WUD Monitor
+    devices.wc = { id: 'wc', manufacturer: "What's Up Docker", model: 'Controller', name: 'WUD @ home', via_device_id: null, name_by_user: null, disabled_by: null };
+    ent('sensor.wud_home_last_poll', 'wc', 'wud_monitor', undefined, '2026-11-22', { friendly_name: 'WUD @ home Last Poll' });
+    ent('button.wud_home_force_scan_all', 'wc', 'wud_monitor', undefined, 'unknown', { friendly_name: 'WUD @ home Force Scan All' });
+    ent('sensor.plex_update_available', 'wc', 'wud_monitor', undefined, 'Yes', { friendly_name: 'plex Update Available' });
+    ent('sensor.remote_app_update', 'wc', 'wud_monitor', undefined, 'No', { friendly_name: 'whatever', container_name: 'remote-app' });
+    ent('sensor.sonarr_update_available', 'wc', 'wud_monitor', undefined, 'No', { friendly_name: 'sonarr Update Available' });
+    ent('sensor.sonarr_minecraft_update_available', 'wc', 'wud_monitor', undefined, 'No', { friendly_name: 'sonarr (minecraft) Update Available' });
+    ent('sensor.wud_home_containers_with_updates', 'wc', 'wud_monitor', undefined, '1', { friendly_name: 'WUD @ home Containers with Updates' });
+    return { devices, entities, states, language, locale: { language }, callService: () => Promise.resolve() };
+  }
+  const discover = (hass, opts) => customElements.get('docker-card-editor') && (() => {
+    const el = document.createElement('docker-card-editor');
+    el.hass = hass;
+    return el._discover(opts);
+  })();
+
+  test('discover: lists the endpoint\'s containers sorted by name, resolving the endpoint through a stack', () => {
+    const r = discover(registryHass(), { endpoint: 'ep1' });
+    assertDeepEqual(r.containers.map((c) => c.name), ['plex', 'plex-db', 'sonarr']);
+    assertEqual(r.unavailable, 1);
+  });
+
+  test('discover: an endpoint can be chosen by name and excludes the other endpoint\'s containers', () => {
+    const r = discover(registryHass(), { endpoint: 'Remote' });
+    assertDeepEqual(r.containers.map((c) => c.name), ['remote-app']);
+  });
+
+  test('discover: Portainer roles are recognised by translation_key and the container "status" binary sensor is not used', () => {
+    const plex = discover(registryHass(), { endpoint: 'ep1' }).containers.find((c) => c.name === 'plex');
+    assertEqual(plex.status_entity, 'sensor.plex_state');
+    assertEqual(plex.control_entity, 'switch.plex');
+    assertEqual(plex.restart_entity, 'button.plex_restart');
+    assertEqual(plex.pause_entity, 'button.plex_pause');
+    assertEqual(plex.cpu_entity, 'sensor.plex_cpu');
+    assertEqual(plex.memory_entity, 'sensor.plex_memory_pct');
+    assertTrue(!('resume_entity' in plex), 'roles the integration did not provide stay absent');
+  });
+
+  test('discover: exclude globs (comma-separated, * and ?) drop containers and are counted', () => {
+    const r = discover(registryHass(), { endpoint: 'ep1', exclude: '*-db, SONARR' });
+    assertDeepEqual(r.containers.map((c) => c.name), ['plex']);
+    assertEqual(r.excluded, 2);
+  });
+
+  test('discover: unavailable containers are skipped unless asked for', () => {
+    const withGhost = discover(registryHass(), { endpoint: 'ep1', includeUnavailable: true });
+    assertTrue(withGhost.containers.some((c) => c.name === 'ghost'));
+  });
+
+  test('discover: memory falls back to the absolute sensor when the percentage one is not available', () => {
+    const h = registryHass();
+    delete h.entities['sensor.plex_memory_pct'];
+    h.entities['sensor.plex_mem'] = { entity_id: 'sensor.plex_mem', device_id: 'c_plex', platform: 'portainer', translation_key: 'memory_usage' };
+    h.states['sensor.plex_mem'] = { state: '300', attributes: {} };
+    const plex = discover(h, { endpoint: 'ep1' }).containers.find((c) => c.name === 'plex');
+    assertEqual(plex.memory_entity, 'sensor.plex_mem');
+  });
+
+  test('discover: WUD update sensors are matched by name, by the container_name attribute, and ambiguous names are left blank', () => {
+    const all = discover(registryHass(), { endpoint: 'ep1' }).containers;
+    assertEqual(all.find((c) => c.name === 'plex').update_entity, 'sensor.plex_update_available');
+    assertTrue(!('update_entity' in all.find((c) => c.name === 'sonarr')), 'sonarr exists on two WUD watchers: must not guess');
+    const remote = discover(registryHass(), { endpoint: 'ep2' }).containers[0];
+    assertEqual(remote.update_entity, 'sensor.remote_app_update');
+  });
+
+  test('discover: a "(watcher)" suffix in the WUD name is stripped before matching', () => {
+    const h = registryHass();
+    delete h.entities['sensor.sonarr_update_available'];
+    const sonarr = discover(h, { endpoint: 'ep1' }).containers.find((c) => c.name === 'sonarr');
+    assertEqual(sonarr.update_entity, 'sensor.sonarr_minecraft_update_available');
+  });
+
+  test('discover: overview entities come from the endpoint device (images_count → image_count) plus the WUD controller', () => {
+    const ov = discover(registryHass(), { endpoint: 'ep1' }).overview;
+    assertEqual(ov.status, 'binary_sensor.local_status');
+    assertEqual(ov.image_count, 'sensor.local_images');
+    assertEqual(ov.docker_version, 'sensor.local_docker');
+    assertEqual(ov.prune_images, 'button.local_prune_images');
+    assertEqual(ov.wud_last_poll, 'sensor.wud_home_last_poll');
+    assertEqual(ov.wud_scan, 'button.wud_home_force_scan_all');
+  });
+
+  test('discover: an unknown endpoint, or a hass without registries, yields nothing and does not throw', () => {
+    assertEqual(discover(registryHass(), { endpoint: 'nope' }).containers.length, 0);
+    assertEqual(discover({}, { endpoint: 'ep1' }).containers.length, 0);
+  });
+
+  test('import: the endpoint list is built from Portainer endpoint devices and the button is enabled', () => {
+    const { el } = freshEditor({ containers: [] });
+    el.hass = registryHass();
+    const opts = Array.from(el.querySelectorAll('.dce-endpoint option')).map((o) => o.textContent);
+    assertDeepEqual(opts, ['Local', 'Remote']);
+    assertTrue(!el.querySelector('.dce-import-btn').disabled, 'button should be enabled');
+  });
+
+  test('import: without a Portainer endpoint the button is disabled and says so', () => {
+    const { el } = freshEditor({ containers: [] });
+    assertTrue(el.querySelector('.dce-import-btn').disabled, 'button should be disabled');
+    assertEqual(el.querySelector('.dce-import-msg').textContent, 'No Portainer endpoint found in Home Assistant.');
+  });
+
+  test('import: adds the containers and fills empty overview fields, emitting one config-changed', () => {
+    const { el, events } = freshEditor({ containers: [] });
+    el.hass = registryHass();
+    el.querySelector('.dce-endpoint').value = 'ep1';
+    el.querySelector('.dce-exclude').value = '*-db';
+    el.querySelector('.dce-import-btn').click();
+    const cfg = events[events.length - 1];
+    assertDeepEqual(cfg.containers.map((c) => c.name), ['plex', 'sonarr']);
+    assertEqual(cfg.docker_overview.wud_scan, 'button.wud_home_force_scan_all');
+    assertEqual(rowEls(el).length, 2);
+    assertTrue(/Added 2 containers/.test(el.querySelector('.dce-import-msg').textContent), el.querySelector('.dce-import-msg').textContent);
+  });
+
+  test('import: never overwrites — existing containers are kept as they are, a second import adds nothing, set overview fields stay', () => {
+    const mine = { name: 'plex', status_entity: 'sensor.plex_state', running_color: 'red' };
+    const { el, events } = freshEditor({ containers: [mine], docker_overview: { status: 'sensor.mine' } });
+    el.hass = registryHass();
+    el.querySelector('.dce-endpoint').value = 'ep1';
+    el.querySelector('.dce-import-btn').click();
+    let cfg = events[events.length - 1];
+    assertDeepEqual(cfg.containers[0], mine);
+    assertDeepEqual(cfg.containers.map((c) => c.name), ['plex', 'plex-db', 'sonarr']);
+    assertEqual(cfg.docker_overview.status, 'sensor.mine');
+    const before = events.length;
+    el.querySelector('.dce-import-btn').click();
+    assertEqual(events.length, before, 'a repeated import must not emit again');
+    assertEqual(el.querySelector('.dce-import-msg').textContent.startsWith('Added 0 containers'), true);
+  });
+
   const resultsEl = document.getElementById('results');
   const summaryEl = document.getElementById('summary');
   let passCount = 0;
